@@ -1,0 +1,859 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<title>퍼플루</title>
+<script>window.PURPLU_REMOTE = true;</script>
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  :root { --c:#8B5CF6; --bg:#000; --panel:#241640; --line:#4C3A75; --text:#F5F3FF; --dim:#A1A1AA; --ring:transparent; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+  html, body { margin:0; height:100%; background:#000; color:var(--text);
+    font-family:"Pretendard","Noto Sans KR","Malgun Gothic",sans-serif; overflow:hidden; }
+  #face { position:fixed; inset:0; width:100vw; height:100vh; touch-action:none; display:block; }
+  /* 상태 테두리: 화면 가장자리가 은은하게 빛난다 (원본처럼) */
+  #ring { position:fixed; inset:0; pointer-events:none; box-shadow:inset 0 0 0 var(--ringw, 0px) var(--ring), inset 0 0 60px var(--ring);
+    transition:box-shadow .35s; }
+  #dot { position:fixed; top:14px; left:16px; width:9px; height:9px; border-radius:50%; background:#EF4444; opacity:.6; }
+  #dot.on { background:#22C55E; }
+  #gear { position:fixed; top:6px; right:8px; width:44px; height:44px; border-radius:50%; border:0; background:transparent;
+    color:#ffffff40; font-size:22px; }
+  #caption { position:fixed; top:22px; left:50%; transform:translateX(-50%); max-width:min(86vw,760px); display:none;
+    background:#fff; color:#2A1250; border-radius:22px; padding:12px 20px; font-size:clamp(16px,2.4vw,22px); line-height:1.45;
+    text-align:center; box-shadow:0 8px 30px #0008; }
+  #caption .heard { color:#7C3AED; font-size:.8em; margin-bottom:4px; }
+  #caption .steps { font-size:.75em; color:#2563EB; margin-top:4px; }
+  #card { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); display:none; max-width:min(86vw,720px); max-height:60vh;
+    overflow:auto; background:#1E1235f2; border:1px solid var(--line); border-radius:18px; padding:16px 20px; font-size:16px; line-height:1.55;
+    user-select:text; box-shadow:0 10px 40px #000a; }
+  #card a { color:#C4B5FD; }
+  #card .x { position:absolute; top:6px; right:10px; color:var(--dim); font-size:20px; }
+  #face { transition:width .35s ease; }
+  body.split #face { width:50vw; }
+  #side { position:fixed; top:0; right:0; width:50vw; height:100vh; background:#120B22; border-left:1px solid #2E1F4F;
+    transform:translateX(100%); transition:transform .35s ease; display:flex; flex-direction:column; z-index:5; }
+  body.split #side { transform:none; }
+  #side .head { display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid #2E1F4F; color:#E9D5FF; font-weight:700; }
+  #side .head .st { font-weight:400; color:var(--dim); font-size:14px; }
+  #side .head button { margin-left:auto; background:transparent; border:0; color:#A1A1AA; font-size:22px; }
+  #side .body { flex:1; overflow:auto; padding:16px; font-size:16px; line-height:1.55; user-select:text; -webkit-user-select:text; }
+  #side .me { margin-left:auto; max-width:85%; background:#2E1F4F; border-radius:16px 16px 4px 16px; padding:10px 14px; color:#DDD6FE; margin-bottom:12px; width:fit-content; }
+  #side details { background:#1B1230; border:1px solid #2E1F4F; border-radius:12px; margin:10px 0; }
+  #side summary { cursor:pointer; padding:10px 14px; color:#C4B5FD; font-size:14px; list-style:none; }
+  #side summary::before { content:"▸ "; } #side details[open] summary::before { content:"▾ "; }
+  #side .think-text { padding:0 14px 12px; color:#A1A1AA; font-style:italic; font-size:14px; white-space:pre-wrap; }
+  #side .stepl { padding:6px 14px; font-family:Consolas,monospace; font-size:13px; border-top:1px solid #241640; }
+  #side .stepl .ok { color:#86EFAC } #side .stepl .bad { color:#FCA5A5 } #side .stepl .run { color:#93C5FD }
+  #side .stepl .cmd { color:#FDE68A; display:block; white-space:pre-wrap; word-break:break-all; }
+  #side .stepl .res { color:#A1A1AA; display:block; }
+  #side .reply { font-size:18px; color:#F5F3FF; margin:12px 0; white-space:pre-wrap; }
+  #side .result { background:#1E1235; border:1px solid #4C3A75; border-radius:14px; padding:12px 14px; margin:10px 0; }
+  #side .result a { color:#C4B5FD; }
+  #side .dots span { display:inline-block; width:6px; height:6px; margin:0 2px; border-radius:50%; background:#C4B5FD; animation:dot 1.2s infinite; }
+  #side .dots span:nth-child(2){animation-delay:.2s} #side .dots span:nth-child(3){animation-delay:.4s}
+  @keyframes dot { 0%,100%{opacity:.3} 40%{opacity:1} }
+  #splitbtn { position:fixed; top:6px; right:52px; width:44px; height:44px; border-radius:50%; border:0; background:transparent;
+    color:#ffffff55; font-size:20px; z-index:6; }
+  body.split #splitbtn { color:#C4B5FD; }
+  /* 화면이 나뉘면 ⚙·◧ 버튼은 왼쪽(퍼플루 쪽) 위로 옮겨서 오른쪽 화면의 ✕와 안 겹치게 */
+  #gear, #splitbtn, #dot { transition:right .35s ease; }
+  body.split #gear { right:calc(50vw + 8px); }
+  body.split #splitbtn { right:calc(50vw + 52px); }
+  #side .head { padding-right:12px; }
+  #side .head button { width:40px; height:40px; border-radius:50%; }
+  #side .head button:active { background:#2E1F4F; }
+  /* ☀ 밝은 테마 (설정 → 화면 테마) */
+  body.light { --bg:#FAF8FF; --panel:#FFFFFF; --line:#DDD6FE; --text:#1F1235; --dim:#71717A; background:#FAF8FF; }
+  body.light #side { background:#FFFFFF; border-left-color:#E9E3FB; }
+  body.light #side .head { color:#4C1D95; border-bottom-color:#EDE9FE; }
+  body.light #side .me { background:#EDE9FE; color:#3B0764; }
+  body.light #side details { background:#FAF8FF; border-color:#EDE9FE; }
+  body.light #side summary { color:#6D28D9; }
+  body.light #side .think-text { color:#57534E; }
+  body.light #side .stepl { border-top-color:#EDE9FE; }
+  body.light #side .stepl .ok { color:#15803D } body.light #side .stepl .bad { color:#B91C1C } body.light #side .stepl .run { color:#1D4ED8 }
+  body.light #side .stepl .cmd { color:#92400E; } body.light #side .stepl .res { color:#52525B; }
+  body.light #side .reply { color:#1F1235; }
+  body.light #side .result { background:#F5F3FF; border-color:#DDD6FE; }
+  body.light #side .result a { color:#6D28D9; }
+  body.light #card { background:#FFFFFFf2; color:#1F1235; }
+  body.light #card a { color:#6D28D9; }
+  body.light #gear, body.light #splitbtn { color:#00000040; }
+  body.light #hint { color:#00000060; }
+  /* 글 채팅 줄 (오른쪽 화면 아래) */
+  #chatbar { display:flex; gap:8px; align-items:flex-end; padding:10px 12px; border-top:1px solid #2E1F4F; }
+  #chatbar textarea { flex:1; resize:none; max-height:30vh; min-height:44px; background:#1B1230; color:var(--text); border:1px solid #2E1F4F;
+    border-radius:14px; padding:11px 14px; font:16px inherit; font-family:inherit; user-select:text; -webkit-user-select:text; }
+  #chatbar button { height:44px; min-width:44px; border:0; border-radius:12px; background:#2E1F4F; color:#E9D5FF; font-size:18px; }
+  #chatbar #csend { background:var(--c); color:white; }
+  #chatbar select { height:44px; border-radius:12px; background:#1B1230; color:#C4B5FD; border:1px solid #2E1F4F; font-size:13px; max-width:120px; }
+  #attachprev { display:none; padding:6px 12px 0; } #attachprev img { max-height:70px; border-radius:8px; vertical-align:middle; }
+  #side .result img { max-width:100%; border-radius:10px; display:block; margin-top:6px; }
+  #side .me img { max-width:220px; border-radius:10px; display:block; margin-top:6px; }
+  body.light #chatbar { border-top-color:#EDE9FE; } body.light #chatbar textarea, body.light #chatbar select { background:#FAF8FF; border-color:#DDD6FE; color:#1F1235; }
+  body.light #chatbar button { background:#EDE9FE; color:#4C1D95; }
+  #chatbtn { position:fixed; top:6px; right:96px; width:44px; height:44px; border-radius:50%; border:0; background:transparent;
+    color:#ffffff55; font-size:20px; z-index:6; transition:right .35s ease; }
+  body.split #chatbtn { right:calc(50vw + 96px); } body.light #chatbtn { color:#00000040; }
+  .skill { padding:12px; border:1px solid var(--line); border-radius:12px; margin:8px 0; display:flex; gap:10px; align-items:center; }
+  .skill .d { flex:1 } .skill small { color:var(--dim); display:block; }
+  #skilledit input, #skilledit textarea { width:100%; margin:4px 0; background:#2E1F4F; color:var(--text); border:1px solid var(--line);
+    border-radius:10px; padding:10px; font:15px inherit; font-family:inherit; box-sizing:border-box; }
+  body.light #skilledit input, body.light #skilledit textarea { background:#FAF8FF; }
+  #hint { position:fixed; bottom:10px; width:100%; text-align:center; color:#ffffff55; font-size:13px; transition:opacity 1s; pointer-events:none; }
+  #panel { position:fixed; inset:0; background:#0009; display:none; align-items:center; justify-content:center; z-index:10; }
+  #panel.open { display:flex; }
+  .sheet { width:min(94vw,900px); height:min(88vh,720px); background:var(--panel); border:1px solid var(--line); border-radius:22px;
+    display:flex; flex-direction:column; overflow:hidden; }
+  .tabs { display:flex; gap:6px; padding:12px; border-bottom:1px solid var(--line); }
+  .tabs button, .btn { background:#3B2A63; color:var(--text); border:0; border-radius:12px; padding:12px 18px; font-size:16px; font-weight:600; }
+  .tabs button.sel, .btn.main { background:var(--c); }
+  .btn.danger { background:#7F1D1D; }
+  .tabs .close { margin-left:auto; }
+  .page { flex:1; overflow:auto; padding:16px; display:none; }
+  .page.sel { display:flex; gap:16px; }
+  #convs { flex:2; display:flex; flex-direction:column; gap:8px; min-width:0; }
+  #convlist, #memolist { flex:1; overflow:auto; display:flex; flex-direction:column; gap:6px; }
+  .conv, .memo { padding:12px 14px; border-radius:12px; background:#2E1F4F; font-size:16px; }
+  .conv.sel, .memo.sel { background:#6D28D9; } .conv small, .memo small { display:block; color:var(--dim); margin-top:2px; }
+  .conv.cur::before { content:"● "; color:#86EFAC; }
+  .memo { white-space:pre-wrap; }
+  #msgs { flex:3; display:flex; flex-direction:column; gap:8px; min-width:0; }
+  #msglist { flex:1; overflow:auto; background:#1E1235; border-radius:12px; padding:12px; font-size:15px; line-height:1.5; user-select:text; }
+  #msglist .u b { color:#C4B5FD } #msglist .m b { color:#F9A8D4 }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  #memopage, #voicepage { flex-direction:column; }
+  #voicelist { flex:1; overflow:auto; display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px; align-content:start; }
+  .voice { padding:12px 14px; border-radius:12px; background:#2E1F4F; font-size:16px; }
+  .voice small { display:block; color:var(--dim); margin-top:2px; }
+  .voice.sel { background:#6D28D9; } .voice.cur::before { content:"● "; color:#86EFAC; }
+  #memoin { flex:1; background:#1E1235; color:var(--text); border:1px solid var(--line); border-radius:12px; padding:12px; font-size:16px; user-select:text; -webkit-user-select:text; }
+  #setpage { flex-direction:column; gap:14px; font-size:16px; }
+  #setpage label { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; background:#2E1F4F; border-radius:12px; }
+  #setpage select { background:#1E1235; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px; font-size:16px; }
+  #setpage input[type=checkbox] { width:26px; height:26px; accent-color:var(--c); }
+  .note { color:var(--dim); font-size:14px; }
+</style>
+</head>
+<body>
+<canvas id="face"></canvas>
+<div id="ring"></div>
+<div id="dot" title="PC 연결"></div>
+<button id="gear" aria-label="설정" style="z-index:6">⚙</button>
+<button id="splitbtn" aria-label="화면 나누기" title="결과 화면 열기/닫기">◧</button>
+<div id="side">
+  <div class="head">퍼플루 <span class="st" id="sidest"></span><button id="sideclose" aria-label="닫기">✕</button></div>
+  <div class="body" id="sidebody"></div>
+  <div id="attachprev"><img id="attachimg"> <button class="btn" id="attachx" style="padding:6px 10px">✕</button></div>
+  <div id="chatbar">
+    <button id="cimg" title="그림 첨부">📎</button>
+    <textarea id="cin" rows="1" placeholder="퍼플루에게 글로 말하기… (Enter 보내기, Shift+Enter 줄바꿈)"></textarea>
+    <select id="cmodel" title="대화 모델"></select>
+    <button id="csend" title="보내기">➤</button>
+    <input type="file" id="cfile" accept="image/*" style="display:none">
+  </div>
+</div>
+<div id="setup" style="display:none;position:fixed;inset:0;z-index:20;background:#0F0A1Cf2;align-items:center;justify-content:center;padding:16px">
+  <div style="max-width:560px;background:#1B1230;border:1px solid #2E1F4F;border-radius:20px;padding:22px;line-height:1.6;color:#F5F3FF">
+    <h2 style="margin:0 0 8px">💜 퍼플루 PC에 연결하기</h2>
+    <p style="margin:6px 0;color:#C4B5FD">PC와 <b>같은 와이파이</b>에서만 연결돼요. PC의 퍼플루가 켜져 있어야 해요.</p>
+    <label style="display:block;margin:12px 0 4px">PC 주소 (PC 퍼플루 설정 → 갤럭시 탭에 나와요)</label>
+    <div style="display:flex;gap:8px"><input id="pcaddr" placeholder="192.168.0.10:8766" style="flex:1;padding:12px;border-radius:10px;border:1px solid #4C3A75;background:#241640;color:#fff;font-size:16px">
+      <button class="btn main" id="savepc">연결</button></div>
+    <p style="margin:14px 0 4px"><b>처음 한 번:</b> 아래 둘 중 하나를 해 주세요.</p>
+    <p style="margin:4px 0">① <a id="cafile" style="color:#C4B5FD">퍼플루 인증서 받기</a> → 탭 설정 → 보안 → 기타 보안 설정 → 인증서 설치 → CA 인증서 (경고가 영영 안 떠요)</p>
+    <p style="margin:4px 0">② <a id="allowpc" style="color:#C4B5FD" target="_blank">PC 연결 허용하기</a> → '고급' → '계속 진행' 누르면 이 화면으로 돌아와요</p>
+  </div>
+</div>
+<button id="chatbtn" aria-label="글로 채팅" title="글로 채팅">💬</button>
+<div id="caption"></div>
+<div id="card"><span class="x">✕</span><div class="body"></div></div>
+<div id="hint">두 번 톡 = 깨우기/재우기 · 꾹 누르고 말하기 · ⚙ 설정</div>
+<div id="panel">
+  <div class="sheet">
+    <div class="tabs">
+      <button data-p="chat" class="sel">💬 대화</button>
+      <button data-p="memo">📝 메모</button>
+      <button data-p="voice">🔊 목소리</button>
+      <button data-p="skill">🧩 스킬</button>
+      <button data-p="set">⚙ 설정</button>
+      <button class="close btn" id="closeP">닫기</button>
+    </div>
+    <div class="page sel" id="chatpage">
+      <div id="convs">
+        <button class="btn main" id="newc">＋ 새 대화</button>
+        <div id="convlist"></div>
+      </div>
+      <div id="msgs">
+        <div id="msgtitle" style="font-weight:700;font-size:18px"></div>
+        <div id="msglist"></div>
+        <div class="row">
+          <button class="btn main" id="usec">이 대화로 이어가기</button>
+          <button class="btn" id="renc">이름 바꾸기</button>
+          <button class="btn danger" id="delc">삭제</button>
+        </div>
+      </div>
+    </div>
+    <div class="page" id="memopage">
+      <div class="row" style="flex-wrap:nowrap">
+        <input id="memoin" placeholder="직접 메모 쓰기…">
+        <button class="btn main" id="memoadd">추가</button>
+      </div>
+      <div id="memolist"></div>
+      <div class="row">
+        <button class="btn" id="memopin">📌 PC 화면에 붙이기/떼기</button>
+        <button class="btn danger" id="memodel">삭제</button>
+      </div>
+    </div>
+    <div class="page" id="skillpage">
+      <div class="note">스킬 = 퍼플루가 따라 할 '할 일 설명서'. 이름과 언제 쓰는지 적고, 단계별로 무엇을 할지 쓰면 돼요.
+        말로 "이걸 스킬로 저장해"라고 해도 만들어져요.</div>
+      <div id="skilllist"></div>
+      <div id="skilledit">
+        <input id="skname" placeholder="이름 (예: 아침 브리핑)">
+        <input id="skdesc" placeholder="언제 쓰는지 (예: '좋은 아침' 하면 날씨·일정 알려 주기)">
+        <textarea id="skinst" rows="5" placeholder="설명서 (예: 1) 날씨를 찾아  2) 오늘 알림을 모아  3) 세 줄로 말해)"></textarea>
+        <div class="row"><button class="btn main" id="sksave">저장</button><button class="btn" id="sknew">새로 쓰기</button></div>
+      </div>
+    </div>
+    <div class="page" id="voicepage">
+      <div class="note">목소리를 톡 눌러 고르고 ▶ 들어보기 → 마음에 들면 ✓ 정하기. 처음 듣는 목소리는 몇 초 걸려요.</div>
+      <div id="voicelist"></div>
+      <div class="row" style="align-items:center">
+        <button class="btn" id="vplay">▶ 들어보기</button>
+        <button class="btn main" id="vpick">✓ 이 목소리로 정하기</button>
+        <span id="vstatus" class="note"></span>
+      </div>
+    </div>
+    <div class="page" id="setpage"></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+// GitHub Pages에서 열었으면(REMOTE) ?pc=PC주소:8766 으로 PC에 붙는다. PC에서 직접 열었으면 그 PC에.
+const REMOTE = !!window.PURPLU_REMOTE;
+const qpc = new URLSearchParams(location.search).get("pc");
+if (REMOTE && qpc) { try { localStorage.setItem("purplu_pc", qpc); } catch {} history.replaceState(null, "", location.pathname); }
+let PC = REMOTE ? (qpc || (() => { try { return localStorage.getItem("purplu_pc"); } catch { return null; } })()) : location.host;
+const pcUrl = path => REMOTE ? `https://${PC}${path}` : path;   // 그림 등 PC 파일 주소
+const RING = { listening:"#22C55E", thinking:"#F59E0B", acting:"#3B82F6", speaking:"#FF9AD0" };
+let state = "sleep", level = 0, talking = false, pressing = false, ws = null, settings = {};
+let mouse = null, mouseAt = -1e9, touchGaze = null;
+const prefs = (() => { try { return JSON.parse(localStorage.getItem("purplu-tab") || "{}"); } catch { return {}; } })();
+function savePrefs() { try { localStorage.setItem("purplu-tab", JSON.stringify(prefs)); } catch {} }
+if (prefs.captions === undefined) prefs.captions = false;   // 원본처럼 기본은 얼굴만
+if (prefs.chirp === undefined) prefs.chirp = 0.5;
+
+// ---------- 색 ----------
+function hex2rgb(h) { h = (h || "#8B5CF6").replace("#", ""); return [0, 2, 4].map(i => parseInt(h.substr(i, 2), 16)); }
+function mix(rgb, t, to) { return rgb.map((v, i) => Math.round(v + (to[i] - v) * t)); }
+function css(rgb, a = 1) { return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a})`; }
+
+// ---------- 스프링 (원본 FaceAnimator 그대로) ----------
+class Spring {
+  constructor(v, stiffness, damping) { this.value = v; this.velocity = 0; this.k = stiffness; this.d = damping; }
+  step(target, dt) { const c = 2 * Math.sqrt(this.k) * this.d; const a = this.k * (target - this.value) - c * this.velocity;
+    this.velocity += a * dt; this.value += this.velocity * dt; }
+}
+const A = {
+  gazeX: new Spring(0, 260, .82), gazeY: new Spring(0, 260, .82), pupil: new Spring(1, 160, .5),
+  browLift: new Spring(0, 180, .55), browTilt: new Spring(0, 150, .6), lean: new Spring(0, 60, .8),
+  hop: new Spring(0, 260, .35), blush: new Spring(.25, 40, 1), squint: new Spring(0, 150, .7),
+  talk: 0, mood: "resting", moodChanged: 0, blinkStart: -1, doubleBlink: false, nextBlink: 2, nextSaccade: 0,
+  wander: { x: 0, y: -.3 }, jitter: { x: 0, y: 0 }, nextJitter: 0, nextHop: 6, last: null, happyUntil: 0,
+};
+function moodFor(now) {
+  if (now < A.happyUntil && state === "idle") return "happy";
+  return { sleep: "resting", idle: "listening", listening: "listening", thinking: "thinking", acting: "pointing", speaking: "talking" }[state] || "listening";
+}
+const rnd = (a, b) => a + Math.random() * (b - a);
+function step(now) {
+  const dt = Math.min(now - (A.last ?? now), 1 / 20); A.last = now;
+  const mood = moodFor(now);
+  if (mood !== A.mood) {
+    A.mood = mood; A.moodChanged = now; A.blinkStart = now;
+    if (mood !== "resting") { A.hop.velocity += 260; A.pupil.velocity += 3; }
+  }
+  let want;
+  if (touchGaze) want = touchGaze;
+  else if (mouse && now - mouseAt < 2.5) want = { x: (mouse[0] - .5) * 2.2, y: -1 + mouse[1] * .9 };  // 탭은 모니터 아래 → 위를 본다
+  else { if (now > A.nextSaccade) { A.wander = { x: rnd(-.9, .9), y: rnd(-.9, .4) }; A.nextSaccade = now + rnd(.6, 2.2); } want = A.wander; }
+  if (mood === "thinking") want = { x: .6 + .08 * Math.sin(now * 1.3), y: -.85 };
+  if (now > A.nextJitter) {
+    const amt = state === "sleep" ? .015 : mood === "talking" ? .07 : mood === "thinking" ? .05 : .02;
+    A.jitter = { x: rnd(-amt, amt), y: rnd(-amt, amt) }; A.nextJitter = now + rnd(.5, 1.4);
+  }
+  A.gazeX.step(want.x + A.jitter.x, dt); A.gazeY.step(want.y + A.jitter.y, dt);
+  let wantTalk = mood === "talking" ? .5 + .5 * Math.sin(now * 19) * Math.sin(now * 7.3) : 0;
+  if (state === "listening") wantTalk = Math.max(wantTalk, level * .4);
+  A.talk += (wantTalk - A.talk) * Math.min(1, dt * 25);
+  let p = 1, lift = 0, tilt = 0, blush = .25, squint = 0;
+  switch (mood) {
+    case "listening": p = 1.12; lift = 10; break;
+    case "talking": p = 1.05; lift = 6 + A.talk * 18; tilt = .05 * Math.sin(now * 2.3); break;
+    case "pointing": p = .95; lift = -4; tilt = -.14; break;
+    case "thinking": p = .9; lift = 4; tilt = .22; break;
+    case "happy": p = 1.2; lift = 16; blush = .85; squint = 1; break;
+    case "resting": p = .9; lift = -8; blush = .15; break;
+  }
+  A.pupil.step(p, dt); A.browLift.step(lift, dt); A.browTilt.step(tilt, dt); A.blush.step(blush, dt); A.squint.step(squint, dt);
+  A.lean.step(-A.gazeX.value * .045, dt);
+  if (now > A.nextHop) { if (A.talk < .05 && mood !== "resting") A.hop.velocity += rnd(180, 320); A.nextHop = now + rnd(7, 14); }
+  A.hop.step(0, dt);
+  if (now > A.nextBlink) { A.blinkStart = now; A.doubleBlink = Math.random() < .25; A.nextBlink = now + rnd(2, 5); }
+  const q = (now - A.blinkStart) / .15;
+  let closed = q >= 0 && q <= 1 ? Math.sin(Math.PI * q) : 0;
+  if (A.doubleBlink && q >= 1.3 && q <= 2.3) closed = Math.sin(Math.PI * (q - 1.3));
+  return { mood, closed, breathe: Math.sin(now * (mood === "resting" ? 1.1 : 1.8)), time: now,
+           squint: Math.max(0, Math.min(1, A.squint.value)) };
+}
+
+// ---------- 그리기 (원본 FaceView: 844×390 디자인, 아래에서 쏙 올라온 얼굴) ----------
+const cv = $("#face"), g = cv.getContext("2d");
+function resize() { const d = devicePixelRatio || 1; cv.width = (cv.clientWidth || innerWidth) * d; cv.height = innerHeight * d; }
+addEventListener("resize", resize); resize();
+const DW = 844, DH = 390;
+function blobPath(b) {  // 위가 둥글고 아래가 넓은 말랑한 몸
+  const p = new Path2D(), cx = b.x + b.w / 2, top = b.y, bot = b.y + b.h;
+  p.moveTo(b.x, bot);
+  p.bezierCurveTo(b.x - 4, top + b.h * .36, cx - b.w * .36, top, cx, top);
+  p.bezierCurveTo(cx + b.w * .36, top, b.x + b.w + 4, top + b.h * .36, b.x + b.w, bot);
+  p.closePath(); return p;
+}
+function crown(x, y, w, h) {  // 머리 위 꼭지: 퍼플루는 작은 새싹
+  const p = new Path2D(), cx = x + w / 2, by = y + h;
+  p.moveTo(cx, by); p.bezierCurveTo(cx - 4, by - h * .8, cx + w * .35, y - h * .1, cx + w * .55, y + h * .12);
+  p.bezierCurveTo(cx + w * .3, y + h * .5, cx + w * .1, by - h * .2, cx, by);
+  p.moveTo(cx, by); p.bezierCurveTo(cx - 2, by - h * .5, cx - w * .3, y + h * .1, cx - w * .45, y + h * .35);
+  p.bezierCurveTo(cx - w * .25, y + h * .65, cx - w * .08, by - h * .1, cx, by);
+  return p;
+}
+function draw(f) {
+  const W = cv.width, H = cv.height;
+  g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = settings.theme === "light" ? "#FAF8FF" : "#000"; g.fillRect(0, 0, W, H);
+  // 가로 화면은 원본처럼 꽉 차게, 세로 화면은 두 눈이 다 보이게
+  const s = Math.min(Math.max(W / DW, H / DH), W / DW * 1.35);
+  g.translate((W - DW * s) / 2, H - DH * s); g.scale(s, s);
+  const base = hex2rgb(settings.color), light = mix(base, .55, [255, 255, 255]), dark = mix(base, .35, [10, 0, 40]);
+  const navy = css(mix(base, .72, [15, 10, 60])), ink = "#1A1426";
+  const bounce = -A.talk * 16 + f.breathe * 3 - A.hop.value;
+  const b = { x: 12, y: 44 + bounce, w: 820, h: 700 };
+  const pv = { x: b.x + b.w / 2, y: b.y + b.h };
+  g.translate(pv.x, pv.y); g.rotate(A.lean.value);
+  const st = 1 + Math.min(.03, Math.max(-.03, A.hop.value / 900)); g.scale(2 - st, st); g.translate(-pv.x, -pv.y);
+  const blob = blobPath(b);
+  const sleepDim = state === "sleep" ? .78 : 1;
+  // 은은한 빛
+  g.save(); g.shadowColor = css(base, .55); g.shadowBlur = 90; g.shadowOffsetY = -10; g.fillStyle = css(base); g.fill(blob); g.restore();
+  const grad = g.createLinearGradient(b.x, b.y, b.x + b.w, b.y + b.h * .6);
+  grad.addColorStop(0, css(light.map(v => v * sleepDim))); grad.addColorStop(.5, css(base.map(v => v * sleepDim))); grad.addColorStop(1, css(dark.map(v => v * sleepDim)));
+  g.fillStyle = grad; g.fill(blob);
+  g.save(); g.clip(blob);
+  const sh = g.createRadialGradient(b.x + 246, b.y + 126, 0, b.x + 246, b.y + 126, 243);
+  sh.addColorStop(0, "rgba(255,255,255,.5)"); sh.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = sh; g.fill(blob);
+  g.fillStyle = "rgba(255,255,255,.35)"; g.beginPath(); g.ellipse(b.x + 213, b.y + 51, 23, 11, -.2, 0, 7); g.fill();
+  g.restore();
+  // 새싹
+  g.save(); g.translate(b.x + 410, b.y + 10 - A.browLift.value * .3); g.rotate(Math.sin(f.time * 1.6) * .08); g.translate(-(b.x + 410), -(b.y + 10));
+  const sp = crown(b.x + 368, b.y - 46, 84, 56); g.fillStyle = "#4ADE80"; g.strokeStyle = "#15803D"; g.lineWidth = 4; g.fill(sp); g.stroke(sp); g.restore();
+
+  const eyeY = b.y + 157, eyes = [{ x: b.x + 280, y: eyeY }, { x: b.x + 540, y: eyeY }];
+  const squash = 1 - A.talk * .12;
+  // 볼터치
+  eyes.forEach((c, i) => {
+    const side = i ? 1 : -1; g.save(); g.filter = "blur(10px)";
+    g.fillStyle = `rgba(243,166,216,${.25 + .45 * A.blush.value})`;
+    g.beginPath(); g.ellipse(c.x + side * 62, c.y + 117, 45, 21, 0, 0, 7); g.fill(); g.restore();
+  });
+  const skin = () => { const gg = g.createLinearGradient(b.x, b.y, b.x + b.w, b.y + b.h * .6);
+    gg.addColorStop(0, css(light)); gg.addColorStop(.5, css(base)); gg.addColorStop(1, css(dark)); return gg; };
+  eyes.forEach((c, i) => {
+    const side = i ? 1 : -1;
+    // 눈썹
+    g.save(); g.translate(c.x + side * 6, c.y - 112 - Math.min(18, Math.max(-10, A.browLift.value)) * .7);
+    g.rotate(A.browTilt.value * side * -1 + (f.mood === "thinking" && i === 1 ? -.25 : 0));
+    g.strokeStyle = navy; g.lineWidth = 14; g.lineCap = "round"; g.beginPath(); g.moveTo(-38, 6); g.quadraticCurveTo(0, -12, 38, 6); g.stroke(); g.restore();
+    g.lineCap = "round";
+    if (f.mood === "resting") {
+      g.strokeStyle = ink; g.lineWidth = 18; g.beginPath(); g.moveTo(c.x - 62, c.y + 6); g.quadraticCurveTo(c.x, c.y + 52, c.x + 62, c.y + 6); g.stroke(); return;
+    }
+    if (f.mood === "happy" && f.squint > .6) {
+      g.strokeStyle = ink; g.lineWidth = 24; g.beginPath(); g.moveTo(c.x - 60, c.y + 34); g.quadraticCurveTo(c.x, c.y - 54, c.x + 60, c.y + 34); g.stroke(); return;
+    }
+    const open = Math.max(.06, 1 - f.closed) * squash;
+    const white = new Path2D(); white.ellipse(c.x, c.y, 95, 95 * open, 0, 0, 7);
+    g.fillStyle = "#fff"; g.fill(white);
+    if (open <= .2) return;
+    let gx = A.gazeX.value, gy = A.gazeY.value; const len = Math.hypot(gx, gy); if (len > 1) { gx /= len; gy /= len; }
+    const r = 46 * A.pupil.value, px = c.x + gx * 50 - side * 3, py = c.y + gy * 50 * open;
+    g.save(); g.clip(white);
+    g.fillStyle = ink; g.beginPath(); g.arc(px, py, r, 0, 7); g.fill();
+    g.fillStyle = "#fff"; g.beginPath(); g.arc(px - r * .3, py - r * .44, r * .28, 0, 7); g.fill();
+    g.fillStyle = "rgba(255,255,255,.85)"; g.beginPath(); g.arc(px + r * .4, py + r * .34, r * .12, 0, 7); g.fill();
+    if (f.squint > .02) { g.fillStyle = skin(); g.beginPath(); g.ellipse(c.x, c.y + 95 * open - 70 * f.squint + 80, 110, 80, 0, 0, 7); g.fill(); }
+    if (f.mood === "pointing") { g.fillStyle = skin(); g.fillRect(c.x - 100, c.y - 95 * open - 20, 200, 40); }
+    g.restore();
+  });
+  if (f.mood === "resting") {
+    g.font = "700 30px 'Malgun Gothic',sans-serif";
+    for (let i = 0; i < 3; i++) { const ph = (f.time * .35 + i / 3) % 1;
+      g.fillStyle = `rgba(255,255,255,${.9 * Math.sin(Math.PI * ph)})`;
+      g.font = `700 ${26 + i * 8}px sans-serif`; g.fillText("z", b.x + 660 + ph * 70 + Math.sin(ph * 6) * 8, b.y + 90 - ph * 110); }
+  }
+  if (f.mood === "thinking") {
+    for (let i = 0; i < 3; i++) { g.fillStyle = `rgba(255,255,255,${1 - i * .3})`; g.beginPath();
+      g.arc(b.x + 698 + i * 26, b.y + 48 - i * 12 + Math.sin(f.time * 3 + i) * 4, 8, 0, 7); g.fill(); }
+  }
+  // 입: 말하면 열리고(혀), 기쁘면 미소
+  const nw = 60 - A.talk * 8, nh = 38 + A.talk * 34, nx = b.x + 410 - nw / 2, ny = b.y + 272 - A.talk * 6;
+  g.fillStyle = navy;
+  if (f.mood === "happy" && A.talk < .1) {
+    g.beginPath(); g.moveTo(nx - 8, ny + 8); g.quadraticCurveTo(nx + nw / 2, ny + 58, nx + nw + 8, ny + 8); g.closePath(); g.fill();
+  } else {
+    g.beginPath(); g.ellipse(nx + nw / 2, ny + nh / 2, nw / 2, nh / 2, 0, 0, 7); g.fill();
+    if (A.talk > .25) { g.fillStyle = "rgba(229,139,196,.9)"; g.beginPath(); g.ellipse(nx + nw / 2, ny + nh * .77, nw * .28, nh * .15, 0, 0, 7); g.fill(); }
+  }
+}
+function loop(ts) { draw(step(ts / 1000)); requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+
+// ---------- 상태 ----------
+let sentImg = "", heard = "", reply = "", thought = "", steps = [], results = [], captionTimer = null, closedThisTurn = false;
+if (prefs.splitResult === undefined) prefs.splitResult = true;     // 결과가 나오면 화면 나누기
+if (prefs.splitThinking === undefined) prefs.splitThinking = true; // 생각할 때도 화면 나누기
+const isSplit = () => document.body.classList.contains("split");
+function setSplit(on, byUser = false) {
+  if (on === isSplit()) return;
+  document.body.classList.toggle("split", on);
+  if (!on && byUser) closedThisTurn = true;   // 사용자가 닫으면 이번 대답 동안은 다시 안 연다
+  resize(); setTimeout(resize, 380);
+  renderSide(); caption();
+}
+function autoSplit(kind) {
+  if (closedThisTurn) return;
+  if ((kind === "thinking" && prefs.splitThinking) || (kind === "result" && prefs.splitResult)) setSplit(true);
+}
+const STATUS_TXT = { sleep:"자는 중", idle:"", listening:"듣는 중…", thinking:"생각 중…", acting:"하는 중…", speaking:"말하는 중" };
+function renderSide() {
+  if (!isSplit()) return;
+  $("#sidest").textContent = STATUS_TXT[state] || "";
+  const thinking = state === "thinking" || state === "acting";
+  let h = heard ? `<div class="me">${esc(heard)}${sentImg ? `<img src="${sentImg}">` : ""}</div>` : "";
+  if (thought || thinking) {
+    h += `<details class="think" ${thinking || !reply ? "open" : ""}><summary>💭 ${thinking ? "생각 중 <span class='dots'><span></span><span></span><span></span></span>" : "생각"}</summary>` +
+         (settings.show_thoughts !== false && thought ? `<div class="think-text">${esc(thought)}</div>` : "") + `</details>`;
+  }
+  if (steps.length) {
+    const showCall = settings.show_steps !== false, showCmd = settings.show_commands !== false;
+    h += `<details open><summary>⚙ 실행 ${steps.length}개</summary>` + steps.map(s => {
+      const mark = s.done ? (s.ok ? "<span class='ok'>✓</span>" : "<span class='bad'>✗</span>") : "<span class='run'>●</span>";
+      const head = showCall && s.call ? esc(s.call) : esc(s.label);
+      const cmds = showCmd && s.cmds ? s.cmds.slice(-8).map(c => `<span class="cmd">$ ${esc(c)}</span>`).join("") : "";
+      const res = s.done ? `<span class="res">└ ${esc(s.result || "")}${s.secs != null ? " · " + s.secs + "초" : ""}</span>` : `<span class="res">└ 실행 중…</span>`;
+      return `<div class="stepl">${mark} ${head}${cmds}${res}</div>`;
+    }).join("") + `</details>`;
+  }
+  if (reply) h += `<div class="reply">${esc(reply)}</div>`;
+  h += results.map(r => `<div class="result">${r}</div>`).join("");
+  const body = $("#sidebody"), atBottom = body.scrollTop + body.clientHeight >= body.scrollHeight - 30;
+  body.innerHTML = h || `<div style="color:#71717A">퍼플루가 생각하거나 대답하면 여기에 나와요. 아래 칸에 글로 말해도 돼요.</div>`;
+  if (atBottom) body.scrollTop = body.scrollHeight;
+}
+function addResult(html) { results.push(html); autoSplit("result"); if (isSplit()) renderSide(); else showCard(html, 30000); }
+function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function caption() {
+  const c = $("#caption");
+  renderSide();
+  if (isSplit() || !prefs.captions || !(heard || reply || steps.length)) { c.style.display = "none"; return; }
+  c.innerHTML = (heard ? `<div class="heard">${esc(heard)}</div>` : "") + esc(reply) +
+    (steps.length ? `<div class="steps">${steps.map(s => (s.done ? (s.ok ? "✓ " : "✗ ") : "● ") +
+      (settings.show_steps !== false && s.call ? `<code>${esc(s.call)}</code>${s.done ? " → " + esc(s.result || "") : ""}` : esc(s.label)) +
+      (settings.show_commands !== false && s.cmds ? s.cmds.slice(-4).map(c => `<br><code style="color:#B45309">$ ${esc(c)}</code>`).join("") : "")).join("<br>")}</div>` : "");
+  c.style.display = "block";
+  clearTimeout(captionTimer);
+  if (state === "idle" || state === "sleep") captionTimer = setTimeout(() => { c.style.display = "none"; }, 7000);
+}
+function setState(s) {
+  const prev = state; state = s;
+  if (prev === "speaking" && s === "idle") A.happyUntil = performance.now() / 1000 + 1.6;   // 대답을 마치면 방긋
+  if (s === "listening") { heard = reply = thought = ""; steps = []; results = []; closedThisTurn = false; if (!chatPending) sentImg = ""; chatPending = false; }
+  if (s === "thinking" || s === "acting") autoSplit("thinking");
+  document.documentElement.style.setProperty("--ring", RING[s] ? RING[s] + "aa" : "transparent");
+  document.documentElement.style.setProperty("--ringw", RING[s] ? (s === "listening" ? "6px" : "4px") : "0px");
+  caption();
+}
+let chirped = false;
+function chirp() {  // 원본처럼 대답할 때 귀여운 짹 소리
+  if (!ctx || !prefs.chirp) return;
+  const t = ctx.currentTime, o = ctx.createOscillator(), v = ctx.createGain();
+  o.type = "sine"; o.frequency.setValueAtTime(880, t); o.frequency.exponentialRampToValueAtTime(1760, t + .08);
+  o.frequency.exponentialRampToValueAtTime(1320, t + .16);
+  v.gain.setValueAtTime(0, t); v.gain.linearRampToValueAtTime(.25 * prefs.chirp, t + .02); v.gain.exponentialRampToValueAtTime(.001, t + .22);
+  o.connect(v).connect(ctx.destination); o.start(t); o.stop(t + .25);
+}
+function showCard(html, ms = 12000) {
+  $("#card .body").innerHTML = html; $("#card").style.display = "block";
+  clearTimeout(showCard.t); showCard.t = setTimeout(() => { $("#card").style.display = "none"; }, ms);
+}
+$("#card .x").onclick = () => { $("#card").style.display = "none"; };
+
+// ---------- 연결 ----------
+function send(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+function applyColor() {
+  document.documentElement.style.setProperty("--c", settings.color || "#8B5CF6");
+  document.body.classList.toggle("light", settings.theme === "light");
+  document.querySelector('meta[name=theme-color]').content = settings.theme === "light" ? "#FAF8FF" : "#000000";
+}
+function connect() {
+  if (REMOTE && !PC) { showSetup(); return; }
+  ws = new WebSocket(REMOTE ? `wss://${PC}/ws` : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+  let opened = false;
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => { opened = true; failCount = 0; $("#dot").className = "on"; $("#setup").style.display = "none"; };
+  ws.onclose = () => {
+    $("#dot").className = "";
+    if (REMOTE && !opened && ++failCount >= 2) showSetup();   // 인증서 허용 전이거나 다른 와이파이
+    setTimeout(connect, 2500);
+  };
+  ws.onmessage = e => {
+    if (e.data instanceof ArrayBuffer) { playPcm(e.data); return; }
+    const { type, data } = JSON.parse(e.data);
+    switch (type) {
+      case "hello": settings = data.settings; voices = data.voices || {}; pyModes = data.python_approval || {};
+        pyWarn = data.python_warning || {}; secLevels = data.security_levels || {}; secWarn = data.security_warning || {};
+        themes = data.themes || {}; secPython = data.security_python || {}; models = data.models || models; applyColor(); fillModels(); break;
+      case "mouse": mouse = data; mouseAt = performance.now() / 1000; break;
+      case "state": setState(data); if (data === "listening") chirped = false; break;
+      case "heard": heard += data; caption(); break;
+      case "reply": if (!chirped) { chirp(); chirped = true; } reply += data; autoSplit("result"); caption(); break;
+      case "thought": thought += data; caption(); break;
+      case "cmd": if (steps.length) { (steps[steps.length - 1].cmds ||= []).push(data); caption(); } break;
+      case "step":
+        if (data.done && steps.length && steps[steps.length - 1].label === data.label) { data.cmds = steps[steps.length - 1].cmds; steps[steps.length - 1] = data; }
+        else steps.push(data);
+        caption(); break;
+      case "report": {
+        const src = (data.sources || []).map(s => `<a href="${esc(s.url)}" target="_blank">${esc(s.title || "출처")}</a>`).join(" · ");
+        addResult(`🔎 ${esc(data.report).replace(/\n/g, "<br>")}` + (src ? `<br><br><small>${src}</small>` : "")); break; }
+      case "files":
+        addResult(data.length ? data.slice(0, 8).map(f => `📄 ${esc(f.path.split("\\").pop())} <small style="color:#A1A1AA">${esc(f.modified || "")}</small>`).join("<br>") : "찾은 파일이 없어요"); break;
+      case "image": addResult(`🎨 ${esc(data.caption || "")}<a href="${pcUrl(data.url)}" target="_blank"><img src="${pcUrl(data.url)}"></a>`); break;
+      case "skills": showSkills(data); break;
+      case "skill": $("#skname").value = data.name || ""; $("#skdesc").value = data.description || "";
+        $("#skinst").value = data.instructions || ""; editSkill = data.id; break;
+      case "hint": showCard(`🙉 ${esc(data)}`, 3500); A.hop.velocity += 200; break;
+      case "python_ask":
+        showCard(`<b>🐍 퍼플루가 파이썬 코드를 실행하려고 해요</b><br>${esc(data.purpose || "")}
+          ${(data.risks || []).length ? `<div style="background:#7F1D1D;color:#FEE2E2;padding:8px;border-radius:8px;margin-top:6px">⚠ 위험한 부분: ${esc(data.risks.join(" · "))}</div>` : ""}
+          <pre style="background:#0F0A1C;padding:10px;border-radius:10px;max-height:34vh;overflow:auto;font-size:13px;white-space:pre-wrap">${esc(data.code)}</pre>
+          <div class="row" style="justify-content:flex-end"><button class="btn" onclick="send({type:'python_answer',id:${data.id},ok:false});$('#card').style.display='none'">취소</button>
+          <button class="btn main" onclick="send({type:'python_answer',id:${data.id},ok:true});$('#card').style.display='none'">▶ 실행</button></div>`, 120000);
+        navigator.vibrate?.(60); break;
+      case "python_answered": if ($("#card").innerHTML.includes("python_answer")) $("#card").style.display = "none"; break;
+      case "meeting":
+        if (data.status === "recording") showCard(`● 회의록 녹음 시작: <b>${esc(data.title)}</b>`, 5000);
+        if (data.status === "done") showCard(data.error ? `⚠ 회의록 요약 못 함: ${esc(data.error)}` : `✓ 회의록 정리 끝! PC의 ${esc(data.folder)}`, 15000);
+        break;
+      case "reminder":
+        showCard(`<div style="font-size:26px">⏰ <b>${esc(data.text)}</b></div>`, 30000); A.hop.velocity += 500;
+        navigator.vibrate?.([200, 100, 200, 100, 200]); chirp(); break;
+      case "audio_clear": stopAudio(); break;
+      case "error": reply = "⚠ " + data; if (prefs.captions) caption(); else showCard("⚠ " + esc(data), 8000); break;
+      case "voice_preview": $("#vstatus") && ($("#vstatus").textContent = data.status === "loading" ? `${data.voice} 목소리 만드는 중…`
+        : data.status === "playing" ? `🔊 ${data.voice} 재생 중` : `⚠ ${data.error || ""}`); break;
+      case "settings": settings = data; applyColor(); fillModels(); if (panelOpen()) { fillSettings(); showVoices(); } break;
+      case "conversations": showConvs(data); break;
+      case "messages": showMsgs(data); break;
+      case "memos": showMemos(data); break;
+      case "memos_changed": if (panelOpen()) send({ type: "list_memos" }); break;
+      case "conversation": case "conversations_changed": if (panelOpen()) send({ type: "list_conversations" }); break;
+    }
+  };
+}
+connect();
+
+// ---------- 소리 ----------
+let ctx = null, micNode = null, playAt = 0, sources = [];
+const WORKLET = `
+class Down extends AudioWorkletProcessor {
+  constructor() { super(); this.ratio = sampleRate / 16000; this.acc = []; this.pos = 0; }
+  process(inputs) {
+    const ch = inputs[0][0]; if (!ch) return true;
+    for (let i = 0; i < ch.length; i++) {
+      this.pos += 1;
+      if (this.pos >= this.ratio) { this.pos -= this.ratio; const v = Math.max(-1, Math.min(1, ch[i])); this.acc.push(v * 32767); }
+    }
+    if (this.acc.length >= 640) {
+      const out = new Int16Array(this.acc.splice(0, 640)); let sum = 0;
+      for (const v of out) sum += v * v;
+      this.port.postMessage({ pcm: out.buffer, level: Math.sqrt(sum / out.length) / 6000 }, [out.buffer]);
+    }
+    return true;
+  }
+}
+registerProcessor("down", Down);`;
+async function ensureAudio() {
+  if (ctx) { if (ctx.state === "suspended") await ctx.resume(); return; }
+  if (!window.isSecureContext || !navigator.mediaDevices) throw new Error("https 주소로 열어야 마이크를 쓸 수 있어요");
+  ctx = new AudioContext();
+  const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
+  await ctx.audioWorklet.addModule(url);
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
+  const src = ctx.createMediaStreamSource(stream);
+  micNode = new AudioWorkletNode(ctx, "down");
+  micNode.port.onmessage = e => {
+    if (!talking) return;
+    level = Math.min(1, e.data.level);
+    if (ws && ws.readyState === 1) ws.send(e.data.pcm);
+  };
+  src.connect(micNode);
+  try { await navigator.wakeLock?.request("screen"); } catch {}
+}
+function playPcm(buf) {
+  if (!ctx) return;
+  const i16 = new Int16Array(buf), f = new Float32Array(i16.length);
+  for (let i = 0; i < i16.length; i++) f[i] = i16[i] / 32768;
+  const ab = ctx.createBuffer(1, f.length, 24000);
+  ab.copyToChannel(f, 0);
+  const s = ctx.createBufferSource(); s.buffer = ab; s.connect(ctx.destination);
+  playAt = Math.max(playAt, ctx.currentTime + .05);
+  s.start(playAt); playAt += ab.duration;
+  sources.push(s); s.onended = () => { sources = sources.filter(x => x !== s); };
+}
+function stopAudio() { sources.forEach(s => { try { s.stop(); } catch {} }); sources = []; playAt = 0; }
+
+// ---------- 손가락: 두 번 톡 = 깨우기/재우기, 꾹 = 말하기, 우클릭·⚙ = 설정 ----------
+let holdTimer = null, lastTap = 0, pressAt = 0;
+function gazeAt(e) { touchGaze = { x: (e.clientX / innerWidth - .5) * 2.2, y: (e.clientY / innerHeight - .45) * 2.2 }; }
+cv.addEventListener("pointerdown", async e => {
+  if (e.button === 2) { openPanel(); return; }
+  e.preventDefault(); cv.setPointerCapture?.(e.pointerId);
+  pressing = true; pressAt = performance.now(); gazeAt(e); A.hop.velocity -= 120;
+  // 누르는 순간부터 듣는다 (첫 말이 안 잘리게). 목소리가 없으면 PC가 Gemini에 아무것도 안 보낸다
+  talking = true; stopAudio(); send({ type: "talk_start" });
+  clearTimeout(holdTimer);
+  holdTimer = setTimeout(() => { if (pressing) { setState("listening"); navigator.vibrate?.(25); } }, 250);
+  try { await ensureAudio(); } catch (err) { showCard("⚠ 마이크를 못 열었어요: " + esc(err.message)); release(); }
+});
+function release(e) {
+  if (!pressing) return;
+  pressing = false; touchGaze = null; clearTimeout(holdTimer);
+  const now = performance.now(), short = now - pressAt < 300;
+  if (talking) { talking = false; level = 0; send({ type: "talk_end", short }); }
+  if (!short) return;
+  if (now - lastTap < 350) {  // 두 번 톡
+    lastTap = 0;
+    if (state === "sleep") { send({ type: "wake" }); A.hop.velocity += 400; } else send({ type: "sleep" });
+  } else lastTap = now;
+}
+cv.addEventListener("pointermove", e => { if (pressing) gazeAt(e); });
+cv.addEventListener("pointerup", release);
+cv.addEventListener("pointercancel", release);
+cv.addEventListener("contextmenu", e => { e.preventDefault(); if (!talking) openPanel(); });
+$("#gear").onclick = openPanel;
+
+// ---------- GitHub Pages에서 처음 연결할 때 안내 ----------
+var failCount = 0;
+function showSetup() {
+  const ip = (PC || "").split(":")[0];
+  $("#setup").style.display = "flex";
+  $("#pcaddr").value = PC || "";
+  $("#allowpc").href = PC ? `https://${PC}/hello?back=${encodeURIComponent(location.href.split("?")[0])}` : "#";
+  $("#cafile").href = ip ? `http://${ip}:8765/ca.crt` : "#";
+}
+$("#savepc").onclick = () => {
+  PC = $("#pcaddr").value.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  if (PC && !PC.includes(":")) PC += ":8766";
+  try { localStorage.setItem("purplu_pc", PC); } catch {}
+  failCount = 0; $("#setup").style.display = "none"; try { ws && ws.close(); } catch {} connect();
+};
+
+// ---------- 글 채팅 (말로 하는 대화와 같은 대화에 이어짐) ----------
+var attach = null, chatPending = false, models = { "gemini-3.8-live": "⚡ 빠른 모델", "gemini-3.8-live-extended-thinking": "🧠 생각하는 모델" };
+function fillModels() {
+  $("#cmodel").innerHTML = Object.entries(models).map(([k, t]) =>
+    `<option value="${k}" ${settings.live_model === k ? "selected" : ""}>${esc(t)}</option>`).join("");
+}
+fillModels();
+$("#cmodel").onchange = e => { settings.live_model = e.target.value; send({ type: "save_settings", changes: { live_model: e.target.value } }); };
+function sendChat() {
+  const text = $("#cin").value.trim();
+  if (!text && !attach) return;
+  chatPending = true; sentImg = attach ? attach.url : "";
+  send({ type: "chat", text, image: attach && attach.b64, mime: attach && attach.mime });
+  $("#cin").value = ""; $("#cin").style.height = ""; attach = null; $("#attachprev").style.display = "none";
+  ensureAudio().catch(() => {});   // 대답 목소리를 들을 수 있게
+}
+$("#csend").onclick = sendChat;
+$("#cin").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat(); } });
+$("#cin").addEventListener("input", e => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, innerHeight * .3) + "px"; });
+$("#cimg").onclick = () => $("#cfile").click();
+$("#cfile").onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const img = new Image(), r = new FileReader();
+  r.onload = () => { img.onload = () => {   // 너무 큰 사진은 1600px로 줄여서 보낸다
+    const k = Math.min(1, 1600 / Math.max(img.width, img.height)), c = document.createElement("canvas");
+    c.width = img.width * k; c.height = img.height * k; c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    const url = c.toDataURL("image/jpeg", .85);
+    attach = { url, b64: url.split(",")[1], mime: "image/jpeg" };
+    $("#attachimg").src = url; $("#attachprev").style.display = "block"; $("#cin").focus();
+  }; img.src = r.result; };
+  r.readAsDataURL(f); e.target.value = "";
+};
+$("#attachx").onclick = () => { attach = null; $("#attachprev").style.display = "none"; };
+$("#chatbtn").onclick = () => { setSplit(true, true); closedThisTurn = false; setTimeout(() => $("#cin").focus(), 380); };
+// 그림 붙여넣기 (Ctrl+V)
+$("#cin").addEventListener("paste", e => {
+  const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith("image/"));
+  if (item) { e.preventDefault(); const dt = new DataTransfer(); dt.items.add(item.getAsFile()); $("#cfile").files = dt.files; $("#cfile").onchange({ target: $("#cfile") }); }
+});
+
+// ---------- 스킬 ----------
+let editSkill = null;
+function showSkills(rows) {
+  $("#skilllist").innerHTML = rows.map(s => `<div class="skill"><div class="d"><b>🧩 ${esc(s.name)}</b><small>${esc(s.description || "")}</small></div>
+    <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-t="${esc(s.id)}" ${s.enabled ? "checked" : ""}>켜기</label>
+    <button class="btn" data-e="${esc(s.id)}">고치기</button><button class="btn danger" data-d="${esc(s.id)}">삭제</button></div>`).join("")
+    || `<div class="note">아직 스킬이 없어요.</div>`;
+  $("#skilllist").querySelectorAll("[data-t]").forEach(el => el.onchange = () => send({ type: "toggle_skill", id: el.dataset.t, enabled: el.checked }));
+  $("#skilllist").querySelectorAll("[data-e]").forEach(el => el.onclick = () => send({ type: "get_skill", id: el.dataset.e }));
+  $("#skilllist").querySelectorAll("[data-d]").forEach(el => el.onclick = () => { if (confirm("이 스킬을 지울까요?")) send({ type: "delete_skill_row", id: el.dataset.d }); });
+}
+$("#sksave").onclick = () => {
+  const row = { name: $("#skname").value.trim(), description: $("#skdesc").value.trim(), instructions: $("#skinst").value.trim() };
+  if (!row.name || !row.instructions) { alert("이름과 설명서를 써 주세요."); return; }
+  send({ type: "save_skill_row", id: editSkill, ...row }); editSkill = null;
+  ["#skname", "#skdesc", "#skinst"].forEach(s => $(s).value = "");
+};
+$("#sknew").onclick = () => { editSkill = null; ["#skname", "#skdesc", "#skinst"].forEach(s => $(s).value = ""); };
+$("#splitbtn").onclick = () => setSplit(!isSplit(), true);
+$("#sideclose").onclick = () => setSplit(false, true);
+setTimeout(() => { $("#hint").style.opacity = 0; }, 8000);
+
+// ---------- 설정 패널 ----------
+function panelOpen() { return $("#panel").classList.contains("open"); }
+function openPanel() {
+  $("#panel").classList.add("open");
+  showVoices();
+  send({ type: "list_conversations" }); send({ type: "list_memos" }); send({ type: "get_settings" }); send({ type: "list_skills" });
+}
+$("#closeP").onclick = () => $("#panel").classList.remove("open");
+const PAGES = { chat: "#chatpage", memo: "#memopage", voice: "#voicepage", skill: "#skillpage", set: "#setpage" };
+document.querySelectorAll(".tabs button[data-p]").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tabs button[data-p]").forEach(x => x.classList.toggle("sel", x === b));
+  Object.entries(PAGES).forEach(([k, sel]) => $(sel).classList.toggle("sel", k === b.dataset.p));
+});
+
+let selConv = null, current = null;
+function when(ms) { const d = new Date(ms); return isNaN(d) ? "" : `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; }
+function showConvs({ items, current: cur }) {
+  current = cur;
+  if (!selConv || !items.find(c => c.id === selConv)) selConv = cur || (items[0] && items[0].id);
+  $("#convlist").innerHTML = items.map(c => `<div class="conv ${c.id === selConv ? "sel" : ""} ${c.id === cur ? "cur" : ""}" data-id="${esc(c.id)}">${esc(c.title || "새 대화")}<small>${when(c.updated)}</small></div>`).join("") || `<div class="note">아직 대화가 없어요</div>`;
+  $("#convlist").querySelectorAll(".conv").forEach(el => el.onclick = () => { selConv = el.dataset.id; showConvs({ items, current }); });
+  const c = items.find(x => x.id === selConv);
+  $("#msgtitle").textContent = c ? c.title : "";
+  if (selConv) send({ type: "get_messages", id: selConv }); else $("#msglist").innerHTML = "";
+}
+function showMsgs({ id, items }) {
+  if (id !== selConv) return;
+  $("#msglist").innerHTML = items.map(m => `<p class="${m.role === "user" ? "u" : "m"}"><b>${m.role === "user" ? "나" : "퍼플루"}</b> <small style="color:#71717A">${when(m.t)}</small><br>${esc(m.text)}</p>`).join("") || `<span class="note">아직 나눈 말이 없어요.</span>`;
+}
+$("#newc").onclick = () => { send({ type: "new_conversation" }); selConv = null; setTimeout(() => send({ type: "list_conversations" }), 900); };
+$("#usec").onclick = () => { if (selConv) { send({ type: "select_conversation", id: selConv }); setTimeout(() => send({ type: "list_conversations" }), 500); } };
+$("#renc").onclick = () => { if (!selConv) return; const t = prompt("대화 이름", $("#msgtitle").textContent); if (t) send({ type: "rename_conversation", id: selConv, title: t }); };
+$("#delc").onclick = () => { if (selConv && confirm("이 대화를 지울까요? 되돌릴 수 없어요.")) { send({ type: "delete_conversation", id: selConv }); selConv = null; } };
+
+// 목소리: 들어보고 고르기
+let voices = {}, selVoice = null;
+function showVoices() {
+  if (!selVoice) selVoice = settings.voice;
+  $("#voicelist").innerHTML = Object.entries(voices).map(([n, d]) =>
+    `<div class="voice ${n === selVoice ? "sel" : ""} ${n === settings.voice ? "cur" : ""}" data-v="${esc(n)}">${esc(n)}<small>${esc(d)}</small></div>`).join("");
+  $("#voicelist").querySelectorAll(".voice").forEach(el => el.onclick = () => { selVoice = el.dataset.v; showVoices(); });
+}
+$("#vplay").onclick = async () => {
+  if (!selVoice) return;
+  try { await ensureAudio(); } catch (err) { $("#vstatus").textContent = "⚠ " + err.message; return; }
+  stopAudio(); send({ type: "preview_voice", voice: selVoice });
+};
+$("#vpick").onclick = () => {
+  if (!selVoice) return;
+  settings.voice = selVoice; send({ type: "save_settings", changes: { voice: selVoice } });
+  $("#vstatus").textContent = `✓ 이제 '${selVoice}' 목소리로 말해요`; showVoices();
+};
+
+// 메모
+let memos = [], selMemo = null;
+function showMemos(rows) {
+  memos = rows;
+  if (!memos.find(m => m.id === selMemo)) selMemo = null;
+  $("#memolist").innerHTML = memos.map(m => `<div class="memo ${m.id === selMemo ? "sel" : ""}" data-id="${esc(m.id)}">${m.pinned ? "📌 " : ""}${esc(m.text)}<small>${when(m.created)}</small></div>`).join("") || `<div class="note">아직 메모가 없어요. 퍼플루에게 "메모해줘"라고 해 보세요.</div>`;
+  $("#memolist").querySelectorAll(".memo").forEach(el => el.onclick = () => { selMemo = el.dataset.id; showMemos(memos); });
+}
+$("#memoadd").onclick = () => { const t = $("#memoin").value.trim(); if (t) { send({ type: "add_memo", text: t }); $("#memoin").value = ""; } };
+$("#memoin").addEventListener("keydown", e => { if (e.key === "Enter") $("#memoadd").click(); });
+$("#memopin").onclick = () => { const m = memos.find(x => x.id === selMemo); if (m) send({ type: "update_memo", id: m.id, pinned: !m.pinned }); };
+$("#memodel").onclick = () => { if (selMemo && confirm("이 메모를 지울까요?")) send({ type: "delete_memo", id: selMemo }); };
+
+let pyModes = {}, pyWarn = {}, secLevels = {}, secWarn = {}, themes = {}, secPython = {};
+const SWATCHES = { "보라":"#8B5CF6","파랑":"#3B82F6","하늘":"#38BDF8","민트":"#14B8A6","초록":"#22C55E",
+  "노랑":"#EAB308","주황":"#F97316","빨강":"#EF4444","분홍":"#EC4899","회색":"#64748B" };
+const FIELDS = [
+  ["live_model", "대화 모델", ["gemini-3.8-live", "gemini-3.8-live-extended-thinking"]],
+  ["thinking_level", "생각 깊이", ["low", "medium", "high"]],
+  ["show_thoughts", "💭 생각 내용 보여주기"], ["show_steps", "⚙ 실행하는 명령 보여주기"], ["show_commands", "$ 실제 명령어도 보여주기"],
+  ["python_enabled", "🐍 파이썬 코드 실행 허용"], ["computer_control", "컴퓨터 조작 허용"],
+  ["cursor_visible", "PC에 퍼플루 커서 보이기"], ["cursor_follow", "PC에서 마우스 따라다니기"],
+];
+function fillSettings() {
+  const cur = (settings.color || "").toLowerCase();
+  const colorRow = `<label>퍼플루 색<span class="row" style="align-items:center">${Object.entries(SWATCHES).map(([n, h]) =>
+    `<button class="sw" title="${n}" data-c="${h}" style="width:34px;height:34px;border-radius:50%;background:${h};border:${h.toLowerCase() === cur ? "3px solid #fff" : "2px solid #4C3A75"}"></button>`).join("")}
+    <input type="color" id="cpick" value="${esc(settings.color || "#8B5CF6")}" style="width:42px;height:34px;border:0;background:none"></span></label>`;
+  $("#setpage").innerHTML = colorRow + FIELDS.map(([k, label, opts]) => opts
+    ? `<label>${label}<select data-k="${k}">${opts.map(o => `<option ${settings[k] === o ? "selected" : ""}>${o}</option>`).join("")}</select></label>`
+    : `<label>${label}<input type="checkbox" data-k="${k}" ${settings[k] ? "checked" : ""}></label>`).join("")
+    + `<label>🔒 보안 수준<select id="seclevel">${Object.entries(secLevels).map(([k, t]) =>
+        `<option value="${k}" ${(settings.security_level || "strict") === k ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>`
+    + `<label>🎨 화면 테마<select id="themesel">${Object.entries(themes).map(([k, t]) =>
+        `<option value="${k}" ${(settings.theme || "dark") === k ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>`
+    + `<label>🐍 실행 전 확인<select id="pymode">${Object.entries(pyModes).map(([k, t]) =>
+        `<option value="${k}" ${settings.python_approval === k ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>`
+    + `<label>◧ 결과가 나오면 화면 나누기 (왼쪽 퍼플루, 오른쪽 결과)<input type="checkbox" id="psplitr" ${prefs.splitResult ? "checked" : ""}></label>`
+    + `<label>◧ 생각할 때도 화면 나누기<input type="checkbox" id="psplitt" ${prefs.splitThinking ? "checked" : ""}></label>`
+    + `<label>이 탭에 대답 글자도 보이기<input type="checkbox" id="pcap" ${prefs.captions ? "checked" : ""}></label>`
+    + `<label>대답할 때 짹 소리<input type="range" id="pchirp" min="0" max="1" step="0.1" value="${prefs.chirp}"></label>`
+    + `<div class="note">설정은 Firebase에 저장돼서 PC와 실시간으로 같이 써요. 바꾸면 바로 저장돼요.<br>Gemini 키는 PC에서만 넣을 수 있어요 (PC의 퍼플루 우클릭 → 설정).</div>`;
+  $("#seclevel").onchange = e => {
+    const v = e.target.value, old = settings.security_level || "strict", order = Object.keys(secLevels);
+    if (order.indexOf(v) > order.indexOf(old) && !confirm("⚠ 보안 경고\n\n" + (secWarn[v] || ""))) { e.target.value = old; return; }
+    settings.security_level = v; settings.python_approval = secPython[v] || settings.python_approval;
+    send({ type: "save_settings", changes: { security_level: v, python_approval: settings.python_approval } });
+    if ($("#pymode")) $("#pymode").value = settings.python_approval;
+  };
+  $("#themesel").onchange = e => { settings.theme = e.target.value; applyColor(); send({ type: "save_settings", changes: { theme: settings.theme } }); };
+  $("#pymode").onchange = e => {
+    const v = e.target.value;
+    if (pyWarn[v] && !confirm("⚠ 자동 실행 경고\n\n" + pyWarn[v])) { e.target.value = settings.python_approval || "ask"; return; }
+    settings.python_approval = v; send({ type: "save_settings", changes: { python_approval: v } });
+  };
+  $("#psplitr").onchange = e => { prefs.splitResult = e.target.checked; savePrefs(); };
+  $("#psplitt").onchange = e => { prefs.splitThinking = e.target.checked; savePrefs(); };
+  $("#pcap").onchange = e => { prefs.captions = e.target.checked; savePrefs(); caption(); };
+  $("#pchirp").onchange = e => { prefs.chirp = +e.target.value; savePrefs(); chirp(); };
+  const setColor = c => { settings.color = c; applyColor(); send({ type: "save_settings", changes: { color: c } }); fillSettings(); };
+  $("#setpage").querySelectorAll(".sw").forEach(b => b.onclick = e => { e.preventDefault(); setColor(b.dataset.c); });
+  $("#cpick").onchange = e => setColor(e.target.value);
+  $("#setpage").querySelectorAll("[data-k]").forEach(el => el.onchange = () => {
+    send({ type: "save_settings", changes: { [el.dataset.k]: el.type === "checkbox" ? el.checked : el.value } });
+  });
+}
+</script>
+</body>
+</html>

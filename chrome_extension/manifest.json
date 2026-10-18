@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "퍼플루 브라우저 손",
+  "version": "1.1.0",
+  "description": "퍼플루(PC의 AI 컴패니언)가 크롬 탭을 정확하게 읽고, 클릭하고, 입력할 수 있게 해 줍니다. 이 PC의 퍼플루에만 연결돼요.",
+  "permissions": ["tabs", "scripting", "alarms", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "퍼플루 브라우저 손", "default_popup": "popup.html" },
+  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" }
+}

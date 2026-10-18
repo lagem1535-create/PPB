@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>퍼플루 Purplu</title>
+<meta name="description" content="Windows PC와 갤럭시 탭에서 말로 시키는 보라색 AI 컴패니언">
+<style>
+  :root { --c:#8B5CF6; --bg:#FAF8FF; --card:#FFFFFF; --text:#1F1235; --dim:#5B5470; --line:#E9E3FB; --code:#F3F0FF; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg:#0F0A1C; --card:#1B1230; --text:#F5F3FF; --dim:#A1A1AA; --line:#2E1F4F; --code:#241640; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:17px/1.65 "Pretendard","Noto Sans KR","Malgun Gothic",sans-serif; }
+  main { max-width:880px; margin:0 auto; padding:0 16px 80px; }
+  header { text-align:center; padding:64px 16px 32px; }
+  .face { width:132px; height:132px; margin:0 auto 18px; border-radius:50% 50% 46% 46%;
+    background:radial-gradient(circle at 32% 28%, #DDD6FE, var(--c) 55%, #5B21B6); position:relative; box-shadow:0 18px 50px #8B5CF655; }
+  .face i { position:absolute; top:44px; width:34px; height:34px; border-radius:50%; background:#fff; }
+  .face i::after { content:""; position:absolute; left:9px; top:8px; width:18px; height:18px; border-radius:50%; background:#1A1426; }
+  .face i:nth-child(1) { left:28px } .face i:nth-child(2) { right:28px }
+  .face b { position:absolute; left:58px; top:92px; width:16px; height:10px; border-radius:50%; background:#2E1065; }
+  h1 { margin:0; font-size:44px; letter-spacing:-.5px; } .tag { color:var(--dim); margin:8px 0 22px; }
+  .btn { display:inline-block; background:var(--c); color:#fff; text-decoration:none; padding:12px 22px; border-radius:12px; font-weight:700; margin:4px; }
+  .btn.ghost { background:transparent; color:var(--c); border:2px solid var(--c); }
+  h2 { margin:48px 0 14px; font-size:26px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:18px; }
+  .card h3 { margin:0 0 6px; font-size:18px; } .card p { margin:0; color:var(--dim); font-size:15px; }
+  code, pre { background:var(--code); border-radius:8px; font-family:Consolas,monospace; font-size:14px; }
+  code { padding:2px 6px; } pre { padding:14px 16px; overflow-x:auto; }
+  ol li { margin:6px 0; } .note { color:var(--dim); font-size:15px; }
+  footer { text-align:center; color:var(--dim); font-size:14px; padding:30px 16px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="face"><i></i><i></i><b></b></div>
+  <h1>퍼플루</h1>
+  <p class="tag">Windows PC와 갤럭시 탭에서 말로 시키는 보라색 AI 컴패니언 · Gemini Live</p>
+  <a class="btn" href="https://github.com/lagem1535-create/PPB">GitHub에서 받기</a>
+  <a class="btn ghost" href="./">퍼플루 열기</a> <a class="btn ghost" href="#install">설치 방법</a>
+</header>
+<main>
+  <h2>할 수 있는 일</h2>
+  <div class="grid">
+    <div class="card"><h3>🗣 말로·글로 대화</h3><p>F9를 누르고 말하거나 글로 채팅. 둘 다 같은 대화로 이어져요.</p></div>
+    <div class="card"><h3>🖱 PC 직접 조작</h3><p>앱 열기, 클릭·입력, 계산기 계산, 화면 속 버튼 찾아 하이라이트.</p></div>
+    <div class="card"><h3>🌐 크롬 손</h3><p>크롬 확장으로 페이지를 정확하게 읽고, 누르고, 입력해요.</p></div>
+    <div class="card"><h3>📱 갤럭시 탭 얼굴</h3><p>탭이 큰 얼굴이 되고, 결과·생각은 화면을 나눠 보여 줘요.</p></div>
+    <div class="card"><h3>🧩 스킬</h3><p>할 일 설명서를 만들어 두면 그 말이 나올 때 그대로 해요.</p></div>
+    <div class="card"><h3>🐍 파이썬</h3><p>복잡한 계산·파일 변환은 코드를 써서 실행 (실행 전 확인).</p></div>
+    <div class="card"><h3>💻 Windows 기본</h3><p>배터리·PC 상태, 밝기, 다크 모드, 잠금·절전·끄기, 창 다루기.</p></div>
+    <div class="card"><h3>📝 메모·⏰ 알림·🎙 회의록</h3><p>포스트잇 메모, 목소리 알림, 화자 구분 회의록과 요약.</p></div>
+  </div>
+
+  <h2 id="install">설치 방법</h2>
+  <ol>
+    <li>Windows 10/11 PC에 <a href="https://www.python.org/downloads/">Python 3.12 이상</a>과 Git을 설치해요.</li>
+    <li>받기: <pre>git clone https://github.com/lagem1535-create/PPB.git
+cd REPO</pre></li>
+    <li><a href="https://firebase.google.com/">Firebase</a>에서 Realtime Database를 만들고, 그 주소를
+      <code>data\firebase_url.txt</code>에 한 줄로 넣어요. (설정·대화목록이 여기에 저장돼요)</li>
+    <li><code>run.bat</code>을 더블클릭 → 트레이 아이콘 → 설정에서 <a href="https://aistudio.google.com/apikey">Gemini 키</a>를 넣어요.
+      키는 Windows 자격 증명 관리자에만 저장돼요.</li>
+    <li>갤럭시 탭: 같은 와이파이에서 설정 → 갤럭시 탭의 QR을 찍고, 안내대로 퍼플루 인증서를 한 번 설치하면 경고 없이 열려요.</li>
+    <li>크롬 확장: <code>chrome://extensions</code> → 개발자 모드 → 압축해제된 확장 로드 → <code>chrome_extension</code> 폴더.</li>
+  </ol>
+  <p class="note">🔒 퍼플루 화면은 PC와 같은 와이파이에서만 열려요. 인터넷·다른 와이파이에서는 막혀요.
+    이 페이지(GitHub Pages)는 소개와 설치 안내만 있고, 퍼플루 자체는 내 PC에서 돌아가요.</p>
+</main>
+<footer>퍼플루 · Gemini Live로 만든 개인 프로젝트</footer>
+</body>
+</html>

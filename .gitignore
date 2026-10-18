@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+data/
+.pyrun_test/
+.notes_test/
