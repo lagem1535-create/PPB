@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
                                QListWidget, QListWidgetItem, QMessageBox, QPushButton, QSlider, QTabWidget,
-                               QTextBrowser, QVBoxLayout, QWidget)
+                               QPlainTextEdit, QTextBrowser, QVBoxLayout, QWidget)
 
 from . import config, store
 from .server import local_ip
@@ -23,7 +23,7 @@ QPushButton { background:#8B5CF6; border:none; border-radius:8px; padding:7px 14
 QPushButton:hover { background:#A78BFA; }
 QPushButton#plain { background:#3B2A63; }
 QPushButton#danger { background:#7F1D1D; }
-QListWidget, QTextBrowser, QComboBox, QLineEdit { background:#2E1F4F; border:1px solid #4C3A75; border-radius:8px; padding:4px; }
+QListWidget, QTextBrowser, QComboBox, QLineEdit, QPlainTextEdit { background:#2E1F4F; border:1px solid #4C3A75; border-radius:8px; padding:4px; }
 QListWidget::item { padding:8px; border-radius:6px; }
 QListWidget::item:selected { background:#6D28D9; }
 QCheckBox::indicator { width:18px; height:18px; }
@@ -37,7 +37,7 @@ QPushButton { background:#8B5CF6; color:white; border:none; border-radius:8px; p
 QPushButton:hover { background:#7C3AED; }
 QPushButton#plain { background:#EDE9FE; color:#4C1D95; }
 QPushButton#danger { background:#DC2626; }
-QListWidget, QTextBrowser, QComboBox, QLineEdit { background:white; border:1px solid #DDD6FE; border-radius:8px; padding:4px; }
+QListWidget, QTextBrowser, QComboBox, QLineEdit, QPlainTextEdit { background:white; border:1px solid #DDD6FE; border-radius:8px; padding:4px; }
 QListWidget::item { padding:8px; border-radius:6px; }
 QListWidget::item:selected { background:#DDD6FE; color:#1F1235; }
 QCheckBox::indicator { width:18px; height:18px; }
@@ -69,6 +69,7 @@ class SettingsWindow(QWidget):
         tabs.addTab(self._chat_tab(), "💬 대화")
         tabs.addTab(self._memo_tab(), "📝 메모")
         tabs.addTab(self._voice_tab(), "🔊 목소리")
+        tabs.addTab(self._skills_tab(), "🧩 스킬")
         tabs.addTab(self._settings_tab(), "⚙ 설정")
         tabs.addTab(self._tablet_tab(), "📱 갤럭시 탭")
         lay = QVBoxLayout(self)
@@ -80,6 +81,7 @@ class SettingsWindow(QWidget):
         self._fill_settings()
         self.refresh_conversations()
         self.refresh_memos()
+        self.refresh_skills()
         self._refresh_tablet()
         self.show()
         self.raise_()
@@ -277,6 +279,115 @@ class SettingsWindow(QWidget):
         note.setStyleSheet("color:#A1A1AA; font-size:9pt;")
         lay.addWidget(note)
         return w
+
+    # ---- 스킬: 왼쪽 목록(체크 = 켜기), 오른쪽 편집 ----
+    def _skills_tab(self):
+        w = QWidget()
+        self.skill_list = QListWidget()
+        self.skill_list.currentItemChanged.connect(self._pick_skill)
+        self.skill_list.itemChanged.connect(self._toggle_skill)
+        self.skill_list.setWordWrap(True)
+        self.skill_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        new = QPushButton("＋ 새 스킬")
+        new.clicked.connect(self._new_skill)
+        left = QVBoxLayout()
+        left.addWidget(new)
+        left.addWidget(self.skill_list, 1)
+        tip = QLabel("체크 = 켜기. 퍼플루는 '언제 쓰나요'를 보고 스킬을 골라요.\n"
+                     "말로 \"이걸 스킬로 저장해\"라고 해도 만들어져요.")
+        tip.setStyleSheet("color:#A1A1AA; font-size:9pt;")
+        tip.setWordWrap(True)
+        left.addWidget(tip)
+        self.sk_name = QLineEdit(placeholderText="이름 (예: 아침 브리핑)")
+        self.sk_desc = QLineEdit(placeholderText="언제 쓰나요? (예: '좋은 아침' 하면 날씨·일정 알려 주기)")
+        self.sk_inst = QPlainTextEdit(placeholderText="설명서 (단계별로)\n1) 오늘 서울 날씨를 찾아\n"
+                                                      "2) 오늘 알림과 메모를 모아\n3) 세 줄 이내로 밝게 말해")
+        save = QPushButton("💾 저장")
+        save.clicked.connect(self._save_skill)
+        self.sk_del = QPushButton("삭제", objectName="danger")
+        self.sk_del.clicked.connect(self._delete_skill)
+        btns = QHBoxLayout()
+        btns.addWidget(save)
+        btns.addStretch(1)
+        btns.addWidget(self.sk_del)
+        right = QVBoxLayout()
+        for label, widget in (("이름", self.sk_name), ("언제 쓰나요?", self.sk_desc), ("설명서", self.sk_inst)):
+            lab = QLabel(label)
+            lab.setStyleSheet("color:#A1A1AA; font-size:9pt;")
+            right.addWidget(lab)
+            right.addWidget(widget, 1 if widget is self.sk_inst else 0)
+        right.addLayout(btns)
+        lay = QHBoxLayout(w)
+        lay.addLayout(left, 2)
+        lay.addLayout(right, 3)
+        self._skill_id = None
+        return w
+
+    def refresh_skills(self):
+        from .tools import skills
+        try:
+            rows = skills.list_skills()["skills"]
+        except Exception as e:
+            self.skill_list.clear()
+            self.skill_list.addItem(f"⚠ Firebase에 연결 못 했어요: {e}")
+            return
+        self.skill_list.blockSignals(True)
+        self.skill_list.clear()
+        for r in rows:
+            item = QListWidgetItem(f"🧩 {r['name']}\n     {r.get('description') or ''}")
+            item.setData(Qt.UserRole, r["id"])
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if r.get("enabled", True) else Qt.Unchecked)
+            self.skill_list.addItem(item)
+            if r["id"] == self._skill_id:
+                self.skill_list.setCurrentItem(item)
+        self.skill_list.blockSignals(False)
+        self.sk_del.setEnabled(bool(self._skill_id))
+
+    def _pick_skill(self, item, _prev=None):
+        if not item or not item.data(Qt.UserRole):
+            return
+        self._skill_id = item.data(Qt.UserRole)
+        row = store.get(f"skills/{self._skill_id}") or {}
+        self.sk_name.setText(row.get("name", ""))
+        self.sk_desc.setText(row.get("description", ""))
+        self.sk_inst.setPlainText(row.get("instructions", ""))
+        self.sk_del.setEnabled(True)
+
+    def _toggle_skill(self, item):
+        sid = item.data(Qt.UserRole)
+        if sid:
+            store.patch(f"skills/{sid}", {"enabled": item.checkState() == Qt.Checked})
+            self.brain.refresh_session()
+
+    def _new_skill(self):
+        self._skill_id = None
+        self.skill_list.clearSelection()
+        for wdg in (self.sk_name, self.sk_desc):
+            wdg.clear()
+        self.sk_inst.clear()
+        self.sk_del.setEnabled(False)
+        self.sk_name.setFocus()
+
+    def _save_skill(self):
+        row = {"name": self.sk_name.text().strip(), "description": self.sk_desc.text().strip(),
+               "instructions": self.sk_inst.toPlainText().strip(), "enabled": True}
+        if not row["name"] or not row["instructions"]:
+            QMessageBox.information(self, "퍼플루", "이름과 설명서를 써 주세요.")
+            return
+        if self._skill_id:
+            store.patch(f"skills/{self._skill_id}", row)
+        else:
+            self._skill_id = store.post("skills", {**row, "created": store.now_ms()})
+        self.brain.refresh_session()
+        self.refresh_skills()
+
+    def _delete_skill(self):
+        if self._skill_id and QMessageBox.question(self, "퍼플루", "이 스킬을 지울까요?") == QMessageBox.Yes:
+            store.delete(f"skills/{self._skill_id}")
+            self.brain.refresh_session()
+            self._new_skill()
+            self.refresh_skills()
 
     def refresh_memos(self):
         try:

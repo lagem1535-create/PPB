@@ -96,11 +96,6 @@
   #chatbtn { position:fixed; top:6px; right:96px; width:44px; height:44px; border-radius:50%; border:0; background:transparent;
     color:#ffffff55; font-size:20px; z-index:6; transition:right .35s ease; }
   body.split #chatbtn { right:calc(50vw + 96px); } body.light #chatbtn { color:#00000040; }
-  .skill { padding:12px; border:1px solid var(--line); border-radius:12px; margin:8px 0; display:flex; gap:10px; align-items:center; }
-  .skill .d { flex:1 } .skill small { color:var(--dim); display:block; }
-  #skilledit input, #skilledit textarea { width:100%; margin:4px 0; background:#2E1F4F; color:var(--text); border:1px solid var(--line);
-    border-radius:10px; padding:10px; font:15px inherit; font-family:inherit; box-sizing:border-box; }
-  body.light #skilledit input, body.light #skilledit textarea { background:#FAF8FF; }
   #hint { position:fixed; bottom:10px; width:100%; text-align:center; color:#ffffff55; font-size:13px; transition:opacity 1s; pointer-events:none; }
   #panel { position:fixed; inset:0; background:#0009; display:none; align-items:center; justify-content:center; z-index:10; }
   #panel.open { display:flex; }
@@ -129,11 +124,54 @@
   .voice small { display:block; color:var(--dim); margin-top:2px; }
   .voice.sel { background:#6D28D9; } .voice.cur::before { content:"● "; color:#86EFAC; }
   #memoin { flex:1; background:#1E1235; color:var(--text); border:1px solid var(--line); border-radius:12px; padding:12px; font-size:16px; user-select:text; -webkit-user-select:text; }
-  #setpage { flex-direction:column; gap:14px; font-size:16px; }
-  #setpage label { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; background:#2E1F4F; border-radius:12px; }
-  #setpage select { background:#1E1235; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px; font-size:16px; }
-  #setpage input[type=checkbox] { width:26px; height:26px; accent-color:var(--c); }
   .note { color:var(--dim); font-size:14px; }
+  /* 패널 공통 색 (밝은 테마에서도 보이게) */
+  :root { --card:#2E1F4F; --field:#1E1235; --chip:#3B2A63; }
+  body.light { --card:#F3F0FF; --field:#FFFFFF; --chip:#EDE9FE; }
+  body.light .tabs button, body.light .btn { color:#3B0764; } body.light .tabs button.sel, body.light .btn.main { color:#fff; }
+  .tabs button, .btn { background:var(--chip); } .conv, .memo, .voice { background:var(--card); }
+  body.light .conv.sel, body.light .memo.sel, body.light .voice.sel { background:#DDD6FE; color:#1F1235; }
+  #msglist, #memoin { background:var(--field); }
+  .tabs { overflow-x:auto; } .tabs button { white-space:nowrap; }
+
+  /* ---- 설정: 묶음 카드 ---- */
+  #setpage { flex-direction:column; gap:18px; font-size:16px; }
+  .sgroup h3 { margin:4px 2px 8px; font-size:15px; color:var(--dim); font-weight:700; letter-spacing:.3px; }
+  .sbox { background:var(--card); border-radius:16px; overflow:hidden; }
+  .srow { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:14px 16px; }
+  .srow + .srow { border-top:1px solid var(--line); }
+  .srow .st { min-width:0; } .srow .st b { font-weight:600; display:block; } .srow .st small { color:var(--dim); font-size:13px; display:block; margin-top:2px; }
+  .srow.wide { flex-direction:column; align-items:stretch; gap:8px; }
+  .srow select, .srow input[type=text] { background:var(--field); color:var(--text); border:1px solid var(--line); border-radius:10px;
+    padding:10px 12px; font-size:15px; width:100%; font-family:inherit; }
+  .srow:not(.wide) select { width:auto; max-width:55%; }
+  .srow input[type=range] { width:40%; accent-color:var(--c); }
+  .sw-toggle { position:relative; width:52px; height:30px; flex:none; }
+  .sw-toggle input { opacity:0; width:0; height:0; }
+  .sw-toggle span { position:absolute; inset:0; background:#52525B; border-radius:30px; transition:.2s; cursor:pointer; }
+  .sw-toggle span::before { content:""; position:absolute; width:24px; height:24px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.2s; }
+  .sw-toggle input:checked + span { background:var(--c); } .sw-toggle input:checked + span::before { transform:translateX(22px); }
+  .swatches { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .swatches button { width:34px; height:34px; border-radius:50%; border:2px solid var(--line); padding:0; }
+  .swatches button.on { border:3px solid var(--text); }
+  #savedmsg { position:sticky; bottom:0; align-self:center; background:var(--c); color:#fff; padding:6px 14px; border-radius:20px; font-size:14px;
+    opacity:0; transition:opacity .3s; pointer-events:none; }
+
+  /* ---- 스킬: 왼쪽 목록, 오른쪽 편집 ---- */
+  #skillpage { flex-direction:row; }
+  #skillside { flex:2; display:flex; flex-direction:column; gap:8px; min-width:0; }
+  #skilllist { flex:1; overflow:auto; display:flex; flex-direction:column; gap:8px; }
+  .skill { padding:12px 14px; border:2px solid transparent; border-radius:14px; background:var(--card); margin:0; display:flex; gap:10px;
+    align-items:center; cursor:pointer; }
+  .skill.sel { border-color:var(--c); } .skill.off .d { opacity:.5; }
+  .skill .d { flex:1; min-width:0; } .skill .d b { display:block; } .skill small { color:var(--dim); display:block; font-size:13px; }
+  #skilledit { flex:3; display:flex; flex-direction:column; gap:8px; min-width:0; }
+  #skilledit label { font-size:14px; color:var(--dim); margin-top:4px; }
+  #skilledit input, #skilledit textarea { width:100%; margin:0; background:var(--field); color:var(--text); border:1px solid var(--line);
+    border-radius:12px; padding:12px; font:15px inherit; font-family:inherit; box-sizing:border-box; user-select:text; -webkit-user-select:text; }
+  #skilledit textarea { flex:1; min-height:140px; resize:none; line-height:1.5; }
+  #skilltitle { font-weight:700; font-size:18px; }
+  @media (max-width:700px) { #skillpage, #chatpage { flex-direction:column; } }
 </style>
 </head>
 <body>
@@ -207,14 +245,24 @@
       </div>
     </div>
     <div class="page" id="skillpage">
-      <div class="note">스킬 = 퍼플루가 따라 할 '할 일 설명서'. 이름과 언제 쓰는지 적고, 단계별로 무엇을 할지 쓰면 돼요.
-        말로 "이걸 스킬로 저장해"라고 해도 만들어져요.</div>
-      <div id="skilllist"></div>
+      <div id="skillside">
+        <button class="btn main" id="sknew">＋ 새 스킬</button>
+        <div id="skilllist"></div>
+        <div class="note">스킬 = 퍼플루가 따라 할 '할 일 설명서'. 말로 "이걸 스킬로 저장해"라고 해도 만들어져요.</div>
+      </div>
       <div id="skilledit">
-        <input id="skname" placeholder="이름 (예: 아침 브리핑)">
-        <input id="skdesc" placeholder="언제 쓰는지 (예: '좋은 아침' 하면 날씨·일정 알려 주기)">
-        <textarea id="skinst" rows="5" placeholder="설명서 (예: 1) 날씨를 찾아  2) 오늘 알림을 모아  3) 세 줄로 말해)"></textarea>
-        <div class="row"><button class="btn main" id="sksave">저장</button><button class="btn" id="sknew">새로 쓰기</button></div>
+        <div id="skilltitle">새 스킬</div>
+        <label for="skname">이름</label>
+        <input id="skname" placeholder="예: 아침 브리핑">
+        <label for="skdesc">언제 쓰나요? (퍼플루가 이 말을 보고 스킬을 골라요)</label>
+        <input id="skdesc" placeholder="예: '좋은 아침', '오늘 어때?' 하면 날씨·일정 알려 주기">
+        <label for="skinst">설명서 (단계별로)</label>
+        <textarea id="skinst" placeholder="예:&#10;1) 오늘 서울 날씨를 찾아&#10;2) 오늘 알림과 메모를 모아&#10;3) 세 줄 이내로 밝게 말해"></textarea>
+        <div class="row">
+          <button class="btn main" id="sksave">💾 저장</button>
+          <button class="btn" id="sktry">▶ 지금 써 보기</button>
+          <button class="btn danger" id="skdel" style="margin-left:auto">삭제</button>
+        </div>
       </div>
     </div>
     <div class="page" id="voicepage">
@@ -542,8 +590,7 @@ function connect() {
         addResult(data.length ? data.slice(0, 8).map(f => `📄 ${esc(f.path.split("\\").pop())} <small style="color:#A1A1AA">${esc(f.modified || "")}</small>`).join("<br>") : "찾은 파일이 없어요"); break;
       case "image": addResult(`🎨 ${esc(data.caption || "")}<a href="${pcUrl(data.url)}" target="_blank"><img src="${pcUrl(data.url)}"></a>`); break;
       case "skills": showSkills(data); break;
-      case "skill": $("#skname").value = data.name || ""; $("#skdesc").value = data.description || "";
-        $("#skinst").value = data.instructions || ""; editSkill = data.id; break;
+      case "skill": fillSkill(data); break;
       case "hint": showCard(`🙉 ${esc(data)}`, 3500); A.hop.velocity += 200; break;
       case "python_ask":
         showCard(`<b>🐍 퍼플루가 파이썬 코드를 실행하려고 해요</b><br>${esc(data.purpose || "")}
@@ -564,7 +611,7 @@ function connect() {
       case "error": reply = "⚠ " + data; if (prefs.captions) caption(); else showCard("⚠ " + esc(data), 8000); break;
       case "voice_preview": $("#vstatus") && ($("#vstatus").textContent = data.status === "loading" ? `${data.voice} 목소리 만드는 중…`
         : data.status === "playing" ? `🔊 ${data.voice} 재생 중` : `⚠ ${data.error || ""}`); break;
-      case "settings": settings = data; applyColor(); fillModels(); if (panelOpen()) { fillSettings(); showVoices(); } break;
+      case "settings": settings = data; applyColor(); fillModels(); if (panelOpen() && document.activeElement?.type === "text") break; if (panelOpen()) { fillSettings(); showVoices(); } break;
       case "conversations": showConvs(data); break;
       case "messages": showMsgs(data); break;
       case "memos": showMemos(data); break;
@@ -712,23 +759,42 @@ $("#cin").addEventListener("paste", e => {
 });
 
 // ---------- 스킬 ----------
-let editSkill = null;
+let editSkill = null, skillRows = [];
 function showSkills(rows) {
-  $("#skilllist").innerHTML = rows.map(s => `<div class="skill"><div class="d"><b>🧩 ${esc(s.name)}</b><small>${esc(s.description || "")}</small></div>
-    <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-t="${esc(s.id)}" ${s.enabled ? "checked" : ""}>켜기</label>
-    <button class="btn" data-e="${esc(s.id)}">고치기</button><button class="btn danger" data-d="${esc(s.id)}">삭제</button></div>`).join("")
-    || `<div class="note">아직 스킬이 없어요.</div>`;
-  $("#skilllist").querySelectorAll("[data-t]").forEach(el => el.onchange = () => send({ type: "toggle_skill", id: el.dataset.t, enabled: el.checked }));
-  $("#skilllist").querySelectorAll("[data-e]").forEach(el => el.onclick = () => send({ type: "get_skill", id: el.dataset.e }));
-  $("#skilllist").querySelectorAll("[data-d]").forEach(el => el.onclick = () => { if (confirm("이 스킬을 지울까요?")) send({ type: "delete_skill_row", id: el.dataset.d }); });
+  skillRows = rows;
+  $("#skilllist").innerHTML = rows.map(s => `<div class="skill ${s.id === editSkill ? "sel" : ""} ${s.enabled ? "" : "off"}" data-e="${esc(s.id)}">
+      <div class="d"><b>🧩 ${esc(s.name)}</b><small>${esc(s.description || "")}</small></div>
+      <label class="sw-toggle" title="켜기/끄기"><input type="checkbox" data-t="${esc(s.id)}" ${s.enabled ? "checked" : ""}><span></span></label></div>`).join("")
+    || `<div class="note">아직 스킬이 없어요. ＋ 새 스킬로 만들어 보세요.</div>`;
+  $("#skilllist").querySelectorAll("[data-t]").forEach(el => {
+    el.onclick = e => e.stopPropagation();
+    el.onchange = () => send({ type: "toggle_skill", id: el.dataset.t, enabled: el.checked });
+  });
+  $("#skilllist").querySelectorAll(".skill").forEach(el => el.onclick = () => {
+    editSkill = el.dataset.e; send({ type: "get_skill", id: editSkill }); showSkills(skillRows);
+  });
+  if (!editSkill) clearSkill();
+}
+function clearSkill() {
+  editSkill = null; ["#skname", "#skdesc", "#skinst"].forEach(s => $(s).value = "");
+  $("#skilltitle").textContent = "새 스킬"; $("#skdel").style.display = "none"; $("#sktry").style.display = "none";
+}
+function fillSkill(d) {
+  editSkill = d.id; $("#skname").value = d.name || ""; $("#skdesc").value = d.description || ""; $("#skinst").value = d.instructions || "";
+  $("#skilltitle").textContent = "🧩 " + (d.name || "스킬"); $("#skdel").style.display = ""; $("#sktry").style.display = "";
 }
 $("#sksave").onclick = () => {
   const row = { name: $("#skname").value.trim(), description: $("#skdesc").value.trim(), instructions: $("#skinst").value.trim() };
   if (!row.name || !row.instructions) { alert("이름과 설명서를 써 주세요."); return; }
-  send({ type: "save_skill_row", id: editSkill, ...row }); editSkill = null;
-  ["#skname", "#skdesc", "#skinst"].forEach(s => $(s).value = "");
+  send({ type: "save_skill_row", id: editSkill, ...row });
+  $("#skilltitle").textContent = "✓ 저장했어요"; setTimeout(() => { $("#skilltitle").textContent = "🧩 " + row.name; }, 1500);
 };
-$("#sknew").onclick = () => { editSkill = null; ["#skname", "#skdesc", "#skinst"].forEach(s => $(s).value = ""); };
+$("#sknew").onclick = () => { clearSkill(); showSkills(skillRows); $("#skname").focus(); };
+$("#skdel").onclick = () => { if (editSkill && confirm("이 스킬을 지울까요?")) { send({ type: "delete_skill_row", id: editSkill }); clearSkill(); } };
+$("#sktry").onclick = () => {
+  const name = $("#skname").value.trim(); if (!name) return;
+  $("#panel").classList.remove("open"); send({ type: "chat", text: `'${name}' 스킬 써 줘` }); setSplit(true, true); closedThisTurn = false;
+};
 $("#splitbtn").onclick = () => setSplit(!isSplit(), true);
 $("#sideclose").onclick = () => setSplit(false, true);
 setTimeout(() => { $("#hint").style.opacity = 0; }, 8000);
@@ -802,55 +868,79 @@ $("#memodel").onclick = () => { if (selMemo && confirm("이 메모를 지울까�
 let pyModes = {}, pyWarn = {}, secLevels = {}, secWarn = {}, themes = {}, secPython = {};
 const SWATCHES = { "보라":"#8B5CF6","파랑":"#3B82F6","하늘":"#38BDF8","민트":"#14B8A6","초록":"#22C55E",
   "노랑":"#EAB308","주황":"#F97316","빨강":"#EF4444","분홍":"#EC4899","회색":"#64748B" };
-const FIELDS = [
-  ["live_model", "대화 모델", ["gemini-3.8-live", "gemini-3.8-live-extended-thinking"]],
-  ["thinking_level", "생각 깊이", ["low", "medium", "high"]],
-  ["show_thoughts", "💭 생각 내용 보여주기"], ["show_steps", "⚙ 실행하는 명령 보여주기"], ["show_commands", "$ 실제 명령어도 보여주기"],
-  ["python_enabled", "🐍 파이썬 코드 실행 허용"], ["computer_control", "컴퓨터 조작 허용"],
-  ["cursor_visible", "PC에 퍼플루 커서 보이기"], ["cursor_follow", "PC에서 마우스 따라다니기"],
-];
+const MODEL_NAMES = { "gemini-3.8-live": "⚡ 빠른 모델 (바로 대답)", "gemini-3.8-live-extended-thinking": "🧠 생각하는 모델 (느리지만 깊게)" };
+const THINK_NAMES = { low: "얕게 (빠름)", medium: "보통", high: "깊게 (느림)" };
+const CURSOR_NAMES = { auto: "필요할 때만 (가리키기·클릭할 때)", always: "항상 보이기" };
+const tog = (k, local) => `<label class="sw-toggle"><input type="checkbox" ${local ? "data-p" : "data-k"}="${k}" ${(local ? prefs[k] : settings[k]) ? "checked" : ""}><span></span></label>`;
+const sel = (k, opts, id) => `<select ${id ? `id="${id}"` : `data-k="${k}"`}>${Object.entries(opts).map(([v, t]) =>
+  `<option value="${esc(v)}" ${String(settings[k] ?? "") === v ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
+const row = (title, desc, ctrl, wide) => `<div class="srow ${wide ? "wide" : ""}"><div class="st"><b>${title}</b>${desc ? `<small>${desc}</small>` : ""}</div>${ctrl}</div>`;
+const group = (title, rows) => `<div class="sgroup"><h3>${title}</h3><div class="sbox">${rows.join("")}</div></div>`;
+function flash(msg = "✓ 저장했어요") { const m = $("#savedmsg"); if (!m) return; m.textContent = msg; m.style.opacity = 1; clearTimeout(flash.t); flash.t = setTimeout(() => m.style.opacity = 0, 1400); }
 function fillSettings() {
   const cur = (settings.color || "").toLowerCase();
-  const colorRow = `<label>퍼플루 색<span class="row" style="align-items:center">${Object.entries(SWATCHES).map(([n, h]) =>
-    `<button class="sw" title="${n}" data-c="${h}" style="width:34px;height:34px;border-radius:50%;background:${h};border:${h.toLowerCase() === cur ? "3px solid #fff" : "2px solid #4C3A75"}"></button>`).join("")}
-    <input type="color" id="cpick" value="${esc(settings.color || "#8B5CF6")}" style="width:42px;height:34px;border:0;background:none"></span></label>`;
-  $("#setpage").innerHTML = colorRow + FIELDS.map(([k, label, opts]) => opts
-    ? `<label>${label}<select data-k="${k}">${opts.map(o => `<option ${settings[k] === o ? "selected" : ""}>${o}</option>`).join("")}</select></label>`
-    : `<label>${label}<input type="checkbox" data-k="${k}" ${settings[k] ? "checked" : ""}></label>`).join("")
-    + `<label>🔒 보안 수준<select id="seclevel">${Object.entries(secLevels).map(([k, t]) =>
-        `<option value="${k}" ${(settings.security_level || "strict") === k ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>`
-    + `<label>🎨 화면 테마<select id="themesel">${Object.entries(themes).map(([k, t]) =>
-        `<option value="${k}" ${(settings.theme || "dark") === k ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>`
-    + `<label>🐍 실행 전 확인<select id="pymode">${Object.entries(pyModes).map(([k, t]) =>
-        `<option value="${k}" ${settings.python_approval === k ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>`
-    + `<label>◧ 결과가 나오면 화면 나누기 (왼쪽 퍼플루, 오른쪽 결과)<input type="checkbox" id="psplitr" ${prefs.splitResult ? "checked" : ""}></label>`
-    + `<label>◧ 생각할 때도 화면 나누기<input type="checkbox" id="psplitt" ${prefs.splitThinking ? "checked" : ""}></label>`
-    + `<label>이 탭에 대답 글자도 보이기<input type="checkbox" id="pcap" ${prefs.captions ? "checked" : ""}></label>`
-    + `<label>대답할 때 짹 소리<input type="range" id="pchirp" min="0" max="1" step="0.1" value="${prefs.chirp}"></label>`
-    + `<div class="note">설정은 Firebase에 저장돼서 PC와 실시간으로 같이 써요. 바꾸면 바로 저장돼요.<br>Gemini 키는 PC에서만 넣을 수 있어요 (PC의 퍼플루 우클릭 → 설정).</div>`;
+  const swatches = `<div class="swatches">${Object.entries(SWATCHES).map(([n, h]) =>
+    `<button class="${h.toLowerCase() === cur ? "on" : ""}" title="${n}" data-c="${h}" style="background:${h}"></button>`).join("")}
+    <input type="color" id="cpick" value="${esc(settings.color || "#8B5CF6")}" style="width:42px;height:34px;border:0;background:none"></div>`;
+  $("#setpage").innerHTML = [
+    group("🗣 대화", [
+      row("대화 모델", "글 채팅 칸 옆에서도 바꿀 수 있어요", sel("live_model", MODEL_NAMES), true),
+      row("생각 깊이", "생각하는 모델일 때만 써요", sel("thinking_level", THINK_NAMES)),
+      row("목소리로 대답", "끄면 글로만 대답해요", tog("speak")),
+      row("💭 생각 내용 보여주기", "생각하는 모델에서 나와요", tog("show_thoughts")),
+      row("⚙ 실행하는 명령 보여주기", "open_app(\"계산기\") 처럼", tog("show_steps")),
+      row("$ 실제 명령어도 보여주기", "파이썬 함수·프로그램·HTTP", tog("show_commands")),
+    ]),
+    group("🎨 화면", [
+      row("퍼플루 색", "", swatches, true),
+      row("화면 테마", "", sel("theme", themes, "themesel")),
+      row("◧ 결과가 나오면 화면 나누기", "왼쪽 퍼플루, 오른쪽 결과 (이 기기만)", tog("splitResult", true)),
+      row("◧ 생각할 때도 화면 나누기", "이 기기만", tog("splitThinking", true)),
+      row("대답 글자 자막", "화면을 안 나눌 때 위에 글자 (이 기기만)", tog("captions", true)),
+      row("대답할 때 짹 소리", "이 기기만", `<input type="range" id="pchirp" min="0" max="1" step="0.1" value="${prefs.chirp}">`),
+    ]),
+    group("🔒 보안 · 실행", [
+      row("보안 수준", "낮추면 경고가 떠요", sel("security_level", secLevels, "seclevel"), true),
+      row("컴퓨터 조작 허용", "클릭·입력·키 누르기", tog("computer_control")),
+      row("🐍 파이썬 코드 실행 허용", "", tog("python_enabled")),
+      row("🐍 실행 전 확인", "", sel("python_approval", pyModes, "pymode"), true),
+    ]),
+    group("🖱 PC 커서", [
+      row("퍼플루 커서 쓰기", "", tog("cursor_visible")),
+      row("커서 보이기", "", sel("cursor_mode", CURSOR_NAMES)),
+      row("내 마우스 따라다니기", "", tog("cursor_follow")),
+    ]),
+    group("🌐 연결", [
+      row("웹 주소 (GitHub Pages)", "이 주소에서 연 화면만 PC에 연결할 수 있어요",
+        `<input type="text" data-k="pages_url" value="${esc(settings.pages_url || "")}" placeholder="https://아이디.github.io/PPB/">`, true),
+      REMOTE ? row("연결된 PC", esc(PC || "없음"), `<button class="btn" id="changepc">바꾸기</button>`) : "",
+    ]),
+    `<div class="note">설정은 PC와 실시간으로 같이 써요. 바꾸면 바로 저장돼요. Gemini 키는 PC 퍼플루 설정에서만 넣을 수 있어요.</div>`,
+    `<div id="savedmsg"></div>`,
+  ].join("");
+  const save = changes => { Object.assign(settings, changes); send({ type: "save_settings", changes }); flash(); };
+  $("#setpage").querySelectorAll("[data-k]").forEach(el => el.onchange = () =>
+    save({ [el.dataset.k]: el.type === "checkbox" ? el.checked : el.value.trim() }));
+  $("#setpage").querySelectorAll("[data-p]").forEach(el => el.onchange = () => {
+    prefs[el.dataset.p] = el.checked; savePrefs(); caption(); flash();
+  });
+  $("#pchirp").onchange = e => { prefs.chirp = +e.target.value; savePrefs(); chirp(); flash(); };
   $("#seclevel").onchange = e => {
     const v = e.target.value, old = settings.security_level || "strict", order = Object.keys(secLevels);
     if (order.indexOf(v) > order.indexOf(old) && !confirm("⚠ 보안 경고\n\n" + (secWarn[v] || ""))) { e.target.value = old; return; }
-    settings.security_level = v; settings.python_approval = secPython[v] || settings.python_approval;
-    send({ type: "save_settings", changes: { security_level: v, python_approval: settings.python_approval } });
-    if ($("#pymode")) $("#pymode").value = settings.python_approval;
+    save({ security_level: v, python_approval: secPython[v] || settings.python_approval });
+    $("#pymode").value = settings.python_approval;
   };
-  $("#themesel").onchange = e => { settings.theme = e.target.value; applyColor(); send({ type: "save_settings", changes: { theme: settings.theme } }); };
+  $("#themesel").onchange = e => { save({ theme: e.target.value }); applyColor(); };
   $("#pymode").onchange = e => {
     const v = e.target.value;
     if (pyWarn[v] && !confirm("⚠ 자동 실행 경고\n\n" + pyWarn[v])) { e.target.value = settings.python_approval || "ask"; return; }
-    settings.python_approval = v; send({ type: "save_settings", changes: { python_approval: v } });
+    save({ python_approval: v });
   };
-  $("#psplitr").onchange = e => { prefs.splitResult = e.target.checked; savePrefs(); };
-  $("#psplitt").onchange = e => { prefs.splitThinking = e.target.checked; savePrefs(); };
-  $("#pcap").onchange = e => { prefs.captions = e.target.checked; savePrefs(); caption(); };
-  $("#pchirp").onchange = e => { prefs.chirp = +e.target.value; savePrefs(); chirp(); };
-  const setColor = c => { settings.color = c; applyColor(); send({ type: "save_settings", changes: { color: c } }); fillSettings(); };
-  $("#setpage").querySelectorAll(".sw").forEach(b => b.onclick = e => { e.preventDefault(); setColor(b.dataset.c); });
+  const setColor = c => { save({ color: c }); applyColor(); fillSettings(); };
+  $("#setpage").querySelectorAll(".swatches button").forEach(b => b.onclick = e => { e.preventDefault(); setColor(b.dataset.c); });
   $("#cpick").onchange = e => setColor(e.target.value);
-  $("#setpage").querySelectorAll("[data-k]").forEach(el => el.onchange = () => {
-    send({ type: "save_settings", changes: { [el.dataset.k]: el.type === "checkbox" ? el.checked : el.value } });
-  });
+  if ($("#changepc")) $("#changepc").onclick = () => { $("#panel").classList.remove("open"); showSetup(); };
 }
 </script>
 </body>
