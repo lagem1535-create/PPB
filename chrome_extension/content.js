@@ -199,12 +199,11 @@
     @keyframes pulse{0%,100%{opacity:.65}50%{opacity:1}}
     .pill{position:fixed;top:10px;left:50%;transform:translateX(-50%);background:var(--c);color:#fff;padding:6px 14px;border-radius:999px;
       font:600 13px "Malgun Gothic",sans-serif;box-shadow:0 6px 20px #0005;white-space:nowrap}
-  </style><div class="glow"></div><div class="pill"></div>`;
+  </style><div class="glow"></div>`;  // 글자 없이 색만
   function setWorking(on, cmd, color) {
     if (!work.isConnected) document.documentElement.appendChild(work);
     work.style.setProperty("--c", color || "#8B5CF6");
     ws_.host.style.setProperty("--c", color || "#8B5CF6");
-    ws_.querySelector(".pill").textContent = "💜 퍼플루가 사용 중" + (CMD_NAMES[cmd] ? " · " + CMD_NAMES[cmd] : "");
     work.style.display = on ? "block" : "none";
   }
 

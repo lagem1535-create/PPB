@@ -908,7 +908,7 @@ function fillSettings() {
       row("🐍 실행 전 확인", "", sel("python_approval", pyModes, "pymode"), true),
     ]),
     group("💜 작업 중 표시", [
-      row("퍼플루가 쓰는 앱·브라우저에 표시", "둘레에 빛 + '퍼플루가 사용 중' (계산기 같은 PC 앱도)", tog("work_indicator")),
+      row("퍼플루가 쓰는 앱·브라우저에 표시", "둘레가 빛나요, 글자 없이 색만 (계산기 같은 PC 앱도)", tog("work_indicator")),
       row("표시 색", "", `<div class="swatches" id="workcolors"><button data-w="" title="퍼플루 색과 같게"
         style="background:${esc(settings.color || "#8B5CF6")};font-size:11px;color:#fff;width:auto;padding:0 10px;border-radius:17px"
         class="${settings.work_indicator_color ? "" : "on"}">퍼플루 색</button>${Object.entries(SWATCHES).map(([n, h]) =>

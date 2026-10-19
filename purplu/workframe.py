@@ -1,4 +1,4 @@
-"""작업 중 표시: 퍼플루가 PC 앱(계산기 등)을 조작하는 동안 그 창 둘레에 빛나는 테두리와 '퍼플루가 사용 중' 표시.
+"""작업 중 표시: 퍼플루가 PC 앱(계산기 등)을 조작하는 동안 그 창 둘레에 빛나는 테두리 (글자 없이 색만).
 
 클릭은 통과하고(조작을 막지 않게), 앞 창을 따라다닌다. 브라우저는 확장이 따로 표시하므로 여기서는 건너뛴다.
 설정: work_indicator(켜기), work_indicator_color(비우면 퍼플루 색)
@@ -8,7 +8,7 @@ import os
 from ctypes import wintypes
 
 from PySide6.QtCore import QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QGuiApplication, QPainter, QPen
+from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
 from . import browser, config
@@ -87,7 +87,7 @@ class WorkFrame(QWidget):
         self.app_name = name.replace(".exe", "")
         l, t, r, b = _window_rect(hwnd)
         dpr = QGuiApplication.primaryScreen().devicePixelRatio()
-        x, y, w, h = l / dpr - PAD, t / dpr - PAD - 30, (r - l) / dpr + PAD * 2, (b - t) / dpr + PAD * 2 + 30
+        x, y, w, h = l / dpr - PAD, t / dpr - PAD, (r - l) / dpr + PAD * 2, (b - t) / dpr + PAD * 2
         if w < 80 or h < 80:
             return
         self.setGeometry(int(x), int(y), int(w), int(h))
@@ -108,20 +108,11 @@ class WorkFrame(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         c = self.color()
         pulse = 0.65 + 0.35 * (0.5 + 0.5 * math.sin(self._phase * 2.2))
-        frame = QRectF(PAD / 2, 30 + PAD / 2, self.width() - PAD, self.height() - 30 - PAD)
+        frame = QRectF(PAD / 2, PAD / 2, self.width() - PAD, self.height() - PAD)
         for i, (width, alpha) in enumerate(((14, 40), (8, 80), (3, 255))):  # 바깥쪽부터 은은한 빛 → 선명한 선
             col = QColor(c)
             col.setAlpha(int(alpha * pulse))
             p.setPen(QPen(col, width))
             p.setBrush(Qt.NoBrush)
             p.drawRoundedRect(frame, 12, 12)
-        text = f"💜 {self.label}" + (f"  ·  {self.app_name}" if self.app_name else "")
-        p.setFont(QFont("Malgun Gothic", 10, QFont.Bold))
-        tw = p.fontMetrics().horizontalAdvance(text) + 28
-        pill = QRectF((self.width() - tw) / 2, 2, tw, 26)
-        p.setPen(Qt.NoPen)
-        p.setBrush(c)
-        p.drawRoundedRect(pill, 13, 13)
-        p.setPen(QColor("white"))
-        p.drawText(pill, Qt.AlignCenter, text)
         p.end()
