@@ -107,16 +107,27 @@ BROWSER_DECLARATIONS = [
     _fn("browser_read", "크롬의 지금 탭을 읽는다: 제목, 주소, 본문 글, 누를 수 있는 것·입력칸 목록(E1, E2…). "
         "크롬에서 무언가를 하기 전에 먼저 부른다. 화면 OCR보다 훨씬 정확하다.",
         {"max_chars": (I, "본문을 몇 글자까지 (기본 6000)")}),
-    _fn("browser_click", "크롬 페이지의 링크·버튼을 누른다. browser_read의 E 번호가 가장 정확하다.",
-        {"element_id": (S, "E 번호"), "text": (S, "번호를 모르면 버튼·링크 글자")}),
-    _fn("browser_type", "크롬 페이지의 입력칸에 글을 넣는다 (검색창 등). 비밀번호 칸은 안 된다.",
+    _fn("browser_click", "크롬 페이지를 진짜 마우스로 누른다. browser_read의 E 번호가 가장 정확하고, "
+        "번호가 없으면 글자(text), 그래도 안 되면 browser_screenshot 사진의 x,y 좌표로.",
+        {"element_id": (S, "E 번호"), "text": (S, "번호를 모르면 버튼·링크 글자"), "x": (I, "사진 좌표 x"), "y": (I, "사진 좌표 y"),
+         "double": (B, "두 번 누르기"), "right": (B, "오른쪽 버튼")}),
+    _fn("browser_type", "크롬 페이지의 입력칸을 눌러 진짜 키보드로 글을 넣는다 (한글 OK). 원래 있던 글은 지우고 넣는다.",
         {"text": (S, "넣을 글"), "element_id": (S, "입력칸 E 번호 (없으면 지금 커서가 있는 칸)"),
-         "submit": (B, "넣고 Enter (검색·전송)")}, ["text"]),
+         "submit": (B, "넣고 Enter (검색·전송)"), "clear": (B, "원래 글 지우기 (기본 true)")}, ["text"]),
+    _fn("browser_keys", "크롬에 키보드 키를 누른다. 예: 'Enter', 'Tab', 'Escape', 'ArrowDown', 'ctrl+a', 'shift+tab', "
+        "'PageDown'. 여러 개는 공백으로: 'ArrowDown ArrowDown Enter'",
+        {"keys": (S, "누를 키")}, ["keys"]),
+    _fn("browser_screenshot", "크롬 지금 화면을 사진으로 본다. 그림·버튼 모양을 봐야 하거나 번호로 못 찾을 때. "
+        "사진 좌표 = browser_click의 x,y."),
     _fn("browser_scroll", "크롬 페이지를 스크롤한다.",
         {"direction": (S, "down / up / top / bottom"), "amount": (I, "1~10, 기본 3")}),
     _fn("browser_nav", "크롬 뒤로/앞으로/새로고침.", {"action": (S, "back / forward / reload")}, ["action"]),
-    _fn("browser_highlight", "크롬 페이지 안의 글자를 찾아 그곳으로 스크롤하고 보라색으로 표시한다.",
-        {"text": (S, "표시할 글자")}, ["text"]),
+    _fn("browser_highlight", "크롬 페이지의 글자에 형광펜을 칠하고(노트도 붙일 수 있음) 그곳으로 스크롤한다. "
+        "이 사이트에 저장돼서 새로고침해도 남는다. text에는 페이지 글을 그대로.",
+        {"text": (S, "칠할 글자 (페이지에 있는 그대로)"), "note": (S, "붙일 노트 (선택)"),
+         "color": (S, "yellow / green / pink / purple (기본 purple)")}, ["text"]),
+    _fn("browser_notes", "하이라이트·노트 목록을 본다. 기본은 지금 페이지, all_sites=true면 모든 사이트.",
+        {"all_sites": (B, "모든 사이트")}),
 ]
 
 SCREEN_DECLARATIONS = [
@@ -168,7 +179,8 @@ _RUNNERS = {
     "browser_tabs": wb.browser_tabs, "browser_open": wb.browser_open, "browser_switch_tab": wb.browser_switch_tab,
     "browser_close_tab": wb.browser_close_tab, "browser_read": wb.browser_read, "browser_click": wb.browser_click,
     "browser_type": wb.browser_type, "browser_scroll": wb.browser_scroll, "browser_nav": wb.browser_nav,
-    "browser_highlight": wb.browser_highlight,
+    "browser_highlight": wb.browser_highlight, "browser_keys": wb.browser_keys,
+    "browser_screenshot": wb.browser_screenshot, "browser_notes": wb.browser_notes,
     "set_reminder": set_reminder, "list_reminders": list_reminders, "cancel_reminder": cancel_reminder,
     "media_control": media_control, "read_clipboard": read_clipboard, "write_clipboard": write_clipboard,
     "search_web": search_web, "system_status": system_status, "windows_action": windows_action, "use_skill": use_skill, "list_skills": list_skills,
@@ -179,7 +191,7 @@ _RUNNERS = {
     "highlight": control.highlight, "clear_highlights": control.clear_highlights,
     "what_is_under_mouse": control.what_is_under_mouse,
 }
-ACTIONS = {"click", "type_text", "press_keys", "scroll", "browser_click", "browser_type"}
+ACTIONS = {"click", "type_text", "press_keys", "scroll", "browser_click", "browser_type", "browser_keys"}
 
 # 말풍선에 보여줄 "하는 중" 문구
 LABELS = {
@@ -203,6 +215,9 @@ LABELS = {
     "browser_read": lambda a: "크롬 페이지 읽는 중…",
     "browser_click": lambda a: f"크롬에서 '{a.get('text') or a.get('element_id', '')}' 누르는 중…",
     "browser_type": lambda a: "크롬에 입력하는 중…",
+    "browser_keys": lambda a: f"크롬 키보드: {a.get('keys', '')}",
+    "browser_screenshot": lambda a: "크롬 화면 보는 중…",
+    "browser_notes": lambda a: "하이라이트·노트 보는 중…",
     "browser_scroll": lambda a: "크롬 스크롤하는 중…",
     "browser_nav": lambda a: f"크롬 {a.get('action', '')}…",
     "browser_highlight": lambda a: f"크롬에서 '{a.get('text', '')}' 표시하는 중…",

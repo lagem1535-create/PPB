@@ -1,5 +1,8 @@
 // 퍼플루 브라우저 손: 이 PC에서 돌아가는 퍼플루(ws://127.0.0.1:8765/ext)와 연결해서
-// 퍼플루가 보내는 명령(탭 열기·페이지 읽기·클릭·입력·스크롤)을 실행하고 결과를 돌려준다.
+// 퍼플루가 보내는 명령(탭·읽기·클릭·입력·키보드·스크롤·스크린샷·하이라이트)을 실행하고 결과를 돌려준다.
+//
+// 클릭·입력은 Claude in Chrome처럼 크롬 디버거(CDP)로 '진짜' 마우스·키보드 신호를 보낸다.
+// (웹페이지가 가짜 click()을 무시하는 경우가 많아서.) 디버거를 못 쓰면 예전 방식으로 대신 한다.
 
 const PURPLU_URL = "ws://127.0.0.1:8765/ext";
 let ws = null;
@@ -18,6 +21,7 @@ function connect() {
   ws.onmessage = async (e) => {
     const msg = JSON.parse(e.data);
     if (msg.type === "ping") { ws.send(JSON.stringify({ type: "pong" })); return; }
+    if (msg.type === "settings") { await chrome.storage.local.set({ purplu_settings: msg.data || {} }); return; }
     if (!msg.id) return;
     let reply;
     try { reply = { id: msg.id, ok: true, result: await run(msg.cmd, msg.args || {}) }; }
@@ -34,16 +38,78 @@ chrome.runtime.onInstalled.addListener(connect);
 chrome.runtime.onMessage.addListener((m, _s, send) => { if (m === "status") send({ connected }); });
 connect();
 
-// ---------- 명령 ----------
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+async function settings() { return (await chrome.storage.local.get("purplu_settings")).purplu_settings || {}; }
 
+// ---------- 디버거 (진짜 마우스·키보드) ----------
+const attached = new Set();
+chrome.debugger.onDetach.addListener(src => attached.delete(src.tabId));
+chrome.tabs.onRemoved.addListener(id => attached.delete(id));
+
+async function cdp(tabId, method, params = {}) {
+  if (!attached.has(tabId)) {
+    try { await chrome.debugger.attach({ tabId }, "1.3"); } catch (e) {
+      if (!String(e.message || e).includes("Already attached")) throw e;
+    }
+    attached.add(tabId);
+  }
+  return chrome.debugger.sendCommand({ tabId }, method, params);
+}
+async function useCdp() { return (await settings()).browser_real_input !== false; }
+
+async function mouseClick(tabId, x, y, clicks = 1, button = "left") {
+  await cdp(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+  for (let i = 1; i <= clicks; i++) {
+    await cdp(tabId, "Input.dispatchMouseEvent", { type: "mousePressed", x, y, button, clickCount: i });
+    await cdp(tabId, "Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button, clickCount: i });
+  }
+}
+
+const KEYS = {
+  enter: ["Enter", "Enter", 13, "\r"], tab: ["Tab", "Tab", 9], escape: ["Escape", "Escape", 27], esc: ["Escape", "Escape", 27],
+  backspace: ["Backspace", "Backspace", 8], delete: ["Delete", "Delete", 46], space: [" ", "Space", 32, " "],
+  arrowup: ["ArrowUp", "ArrowUp", 38], arrowdown: ["ArrowDown", "ArrowDown", 40], arrowleft: ["ArrowLeft", "ArrowLeft", 37],
+  arrowright: ["ArrowRight", "ArrowRight", 39], up: ["ArrowUp", "ArrowUp", 38], down: ["ArrowDown", "ArrowDown", 40],
+  left: ["ArrowLeft", "ArrowLeft", 37], right: ["ArrowRight", "ArrowRight", 39], home: ["Home", "Home", 36], end: ["End", "End", 35],
+  pageup: ["PageUp", "PageUp", 33], pagedown: ["PageDown", "PageDown", 34],
+  f5: ["F5", "F5", 116],
+};
+const MODS = { alt: 1, ctrl: 2, control: 2, meta: 4, cmd: 4, shift: 8 };
+
+// "ctrl+a", "Enter", "shift+tab" 같은 키 하나 누르기
+async function pressKey(tabId, combo) {
+  const parts = combo.toLowerCase().split("+").map(s => s.trim()).filter(Boolean);
+  let mods = 0;
+  for (const p of parts.slice(0, -1)) mods |= MODS[p] || 0;
+  const k = parts[parts.length - 1];
+  let key, code, vk, text;
+  if (KEYS[k]) [key, code, vk, text] = KEYS[k];
+  else if (k.length === 1) {
+    key = k; vk = k.toUpperCase().charCodeAt(0);
+    code = /[a-z]/.test(k) ? "Key" + k.toUpperCase() : /[0-9]/.test(k) ? "Digit" + k : "";
+    text = mods & (2 | 4 | 1) ? undefined : k;
+  } else throw new Error("모르는 키: " + combo);
+  const base = { modifiers: mods, key, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk };
+  await cdp(tabId, "Input.dispatchKeyEvent", { type: text ? "keyDown" : "rawKeyDown", ...base, text, unmodifiedText: text });
+  await cdp(tabId, "Input.dispatchKeyEvent", { type: "keyUp", ...base });
+}
+
+// ---------- 공통 ----------
 async function activeTab() {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (!tab) throw new Error("열린 탭이 없어요");
   return tab;
 }
 
+// func가 함수면 그대로, 글자면 page.js의 PURPLU_PAGE[이름]을 부른다
 async function inPage(tabId, func, args = []) {
   try {
+    if (typeof func === "string") {
+      await chrome.scripting.executeScript({ target: { tabId }, files: ["page.js"], world: "ISOLATED" });
+      const [res] = await chrome.scripting.executeScript({ target: { tabId }, world: "ISOLATED", args: [func, args],
+        func: (name, a) => globalThis.PURPLU_PAGE[name](...a) });
+      return res && res.result;
+    }
     const [res] = await chrome.scripting.executeScript({ target: { tabId }, func, args, world: "ISOLATED" });
     return res && res.result;
   } catch (err) {
@@ -61,10 +127,23 @@ function waitLoaded(tabId, timeoutMs = 15000) {
   });
 }
 
+// 클릭 뒤 페이지가 바뀌는 중이면 다 뜰 때까지 조금 기다린다
+async function settle(tabId) {
+  await sleep(350);
+  const t = await chrome.tabs.get(tabId);
+  if (t.status === "loading") await waitLoaded(tabId, 10000);
+  else await sleep(250);
+}
+
 function normUrl(u) {
   u = (u || "").trim();
   if (!/^[a-z][a-z0-9+.-]*:/i.test(u)) u = (u.includes(".") && !u.includes(" ")) ? "https://" + u : "https://www.google.com/search?q=" + encodeURIComponent(u);
   return u;
+}
+
+async function toContent(tabId, msg) {
+  try { return await chrome.tabs.sendMessage(tabId, msg); }
+  catch { throw new Error("이 페이지에서는 하이라이트를 쓸 수 없어요 (새로고침 후 다시 해 보세요)"); }
 }
 
 async function run(cmd, a) {
@@ -98,117 +177,89 @@ async function run(cmd, a) {
       const t = await chrome.tabs.get(tab.id);
       return { title: t.title, url: t.url };
     }
-    case "read": { const tab = await activeTab(); return { tab_id: tab.id, ...(await inPage(tab.id, pageRead, [a.max_chars || 6000])) }; }
-    case "click": { const tab = await activeTab(); const r = await inPage(tab.id, pageClick, [a.element_id || "", a.text || ""]); await sleep(700); return r; }
-    case "type": { const tab = await activeTab(); const r = await inPage(tab.id, pageType, [a.element_id || "", a.text || "", !!a.submit, !!a.allow_password]); if (a.submit) await sleep(900); return r; }
-    case "scroll": { const tab = await activeTab(); return await inPage(tab.id, pageScroll, [a.direction || "down", a.amount || 3]); }
-    case "highlight": { const tab = await activeTab(); return await inPage(tab.id, pageHighlight, [a.text || ""]); }
+    case "read": { const tab = await activeTab(); return { tab_id: tab.id, ...(await inPage(tab.id, "pageRead", [a.max_chars || 6000])) }; }
+
+    case "screenshot": {   // 화면 사진 (사진 1픽셀 = 페이지 1 CSS 픽셀 → 사진 좌표로 바로 클릭 가능)
+      const tab = await activeTab();
+      const vp = await inPage(tab.id, () => ({ w: innerWidth, h: innerHeight, title: document.title, url: location.href }));
+      let data;
+      try {
+        const r = await cdp(tab.id, "Page.captureScreenshot", { format: "jpeg", quality: 60,
+          clip: { x: 0, y: 0, width: vp.w, height: vp.h, scale: 1 } });
+        data = r.data;
+      } catch {
+        data = (await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 60 })).split(",")[1];
+      }
+      return { image_b64: data, width: vp.w, height: vp.h, title: vp.title, url: vp.url };
+    }
+
+    case "click": {
+      const tab = await activeTab();
+      let target;
+      if (a.x != null && a.y != null) target = { ok: true, x: +a.x, y: +a.y, clicked: `(${a.x}, ${a.y})` };
+      else target = await inPage(tab.id, "pageLocate", [a.element_id || "", a.text || ""]);
+      if (!target || !target.ok) return target || { ok: false, error: "못 찾았어요" };
+      if (await useCdp()) {
+        try {
+          await mouseClick(tab.id, target.x, target.y, a.double ? 2 : 1, a.right ? "right" : "left");
+          await settle(tab.id);
+          return { ok: true, clicked: target.clicked, how: "진짜 마우스" };
+        } catch (e) { /* 디버거를 못 쓰면 아래 예전 방식 */ }
+      }
+      const r = await inPage(tab.id, "pageClick", [a.element_id || "", a.text || "", target.x, target.y]);
+      await settle(tab.id);
+      return r;
+    }
+
+    case "type": {
+      const tab = await activeTab();
+      const target = await inPage(tab.id, "pageLocateInput", [a.element_id || "", !!a.allow_password]);
+      if (!target.ok) return target;
+      if (await useCdp()) {
+        try {
+          await mouseClick(tab.id, target.x, target.y);          // 칸을 진짜로 눌러서 커서를 넣고
+          if (a.clear !== false) { await pressKey(tab.id, "ctrl+a"); await pressKey(tab.id, "backspace"); }
+          await cdp(tab.id, "Input.insertText", { text: a.text || "" });   // 한글도 그대로 들어간다
+          if (a.submit) { await pressKey(tab.id, "enter"); await settle(tab.id); }
+          return { ok: true, typed: (a.text || "").slice(0, 60), submitted: !!a.submit, how: "진짜 키보드" };
+        } catch (e) { /* 예전 방식으로 */ }
+      }
+      const r = await inPage(tab.id, "pageType", [a.element_id || "", a.text || "", !!a.submit, !!a.allow_password]);
+      if (a.submit) await settle(tab.id);
+      return r;
+    }
+
+    case "keys": {   // 키보드: "Enter", "Tab", "ctrl+a", "shift+tab", "ArrowDown" ... 여러 개는 공백으로
+      const tab = await activeTab();
+      const list = String(a.keys || "").split(/\s+/).filter(Boolean);
+      for (const k of list) { await pressKey(tab.id, k); await sleep(60); }
+      await settle(tab.id);
+      return { ok: true, pressed: list };
+    }
+
+    case "scroll": {
+      const tab = await activeTab();
+      if (["top", "bottom"].includes(a.direction) || !(await useCdp())) return await inPage(tab.id, "pageScroll", [a.direction || "down", a.amount || 3]);
+      const vp = await inPage(tab.id, () => ({ w: innerWidth, h: innerHeight }));
+      const dy = (a.direction === "up" ? -1 : 1) * vp.h * 0.8 * Math.max(1, Math.min(10, a.amount || 3)) / 3;
+      const x = a.x ?? vp.w / 2, y = a.y ?? vp.h / 2;
+      await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX: 0, deltaY: dy });
+      await sleep(400);
+      return await inPage(tab.id, () => ({ ok: true, scroll: Math.round(scrollY), page_height: document.documentElement.scrollHeight }));
+    }
+
+    // 하이라이트·노트 (새로고침해도 남는다)
+    case "highlight": { const tab = await activeTab(); return await toContent(tab.id, { type: "hl_add_text", text: a.text || "", note: a.note || "", color: a.color }); }
+    case "notes": {
+      if (a.all) {
+        const all = await chrome.storage.local.get(null);
+        return { pages: Object.entries(all).filter(([k]) => k.startsWith("hl:")).map(([k, v]) => ({ url: k.slice(3),
+          highlights: (v || []).map(h => ({ text: h.text.slice(0, 120), note: h.note || "" })) })).filter(p => p.highlights.length) };
+      }
+      const tab = await activeTab();
+      return await toContent(tab.id, { type: "hl_list" });
+    }
+    case "clear_highlights": { const tab = await activeTab(); return await toContent(tab.id, { type: "hl_clear" }); }
     default: throw new Error("모르는 명령: " + cmd);
   }
-}
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-
-// ---------- 페이지 안에서 실행되는 함수들 (executeScript로 들어감) ----------
-
-function pageRead(maxChars) {
-  const sel = "a[href], button, input, textarea, select, [role=button], [role=link], [role=tab], [role=menuitem], [role=checkbox], [contenteditable=true], [onclick], summary";
-  const visible = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
-    return r.width > 1 && r.height > 1 && s.visibility !== "hidden" && s.display !== "none"; };
-  let n = 0; const elements = [];
-  document.querySelectorAll("[data-purplu-id]").forEach(el => el.removeAttribute("data-purplu-id"));
-  for (const el of document.querySelectorAll(sel)) {
-    if (!visible(el)) continue;
-    const id = "E" + (++n);
-    el.setAttribute("data-purplu-id", id);
-    const label = (el.getAttribute("aria-label") || el.innerText || el.value || el.placeholder || el.title || el.alt || el.name || "").trim().replace(/\s+/g, " ");
-    const r = el.getBoundingClientRect();
-    elements.push({ id, tag: el.tagName.toLowerCase(), type: el.type || el.getAttribute("role") || "", text: label.slice(0, 70),
-                    href: el.href ? String(el.href).slice(0, 120) : undefined, in_view: r.top < innerHeight && r.bottom > 0 });
-    if (elements.length >= 200) break;
-  }
-  const text = (document.body ? document.body.innerText : "").replace(/\n{3,}/g, "\n\n");
-  return { title: document.title, url: location.href, text: text.slice(0, maxChars), text_truncated: text.length > maxChars,
-           scroll: Math.round(scrollY), page_height: document.documentElement.scrollHeight, elements };
-}
-
-function pageFind(id, text) {
-  if (id) { const el = document.querySelector(`[data-purplu-id="${id}"]`); if (el) return el; }
-  if (text) {
-    const t = text.trim().toLowerCase();
-    const cands = [...document.querySelectorAll("a, button, input, textarea, select, [role=button], [role=link], [role=tab], [role=menuitem], summary, label, [onclick]")];
-    const score = (el) => { const s = (el.getAttribute("aria-label") || el.innerText || el.value || el.placeholder || "").trim().toLowerCase();
-      return s === t ? 3 : s.startsWith(t) ? 2 : s.includes(t) ? 1 : 0; };
-    let best = null, bs = 0;
-    for (const el of cands) { const s = score(el); if (s > bs) { best = el; bs = s; } }
-    if (best) return best;
-  }
-  return null;
-}
-
-function pageFlash(el) {
-  const old = el.style.outline; el.style.outline = "3px solid #8B5CF6"; el.style.outlineOffset = "2px";
-  setTimeout(() => { el.style.outline = old; }, 1500);
-}
-
-function pageClick(id, text) {
-  const el = pageFind(id, text);
-  if (!el) return { ok: false, error: "그 요소를 못 찾았어요. 다시 read로 번호를 받으세요." };
-  el.scrollIntoView({ block: "center", behavior: "instant" });
-  pageFlash(el);
-  el.click();
-  return { ok: true, clicked: (el.innerText || el.value || el.getAttribute("aria-label") || el.tagName).trim().slice(0, 60) };
-}
-
-function pageType(id, text, submit, allowPassword) {
-  const el = pageFind(id, "") || (document.activeElement !== document.body ? document.activeElement : null);
-  if (!el) return { ok: false, error: "입력할 칸을 못 찾았어요." };
-  if ((el.type || "").toLowerCase() === "password" && !allowPassword)
-    return { ok: false, error: "비밀번호 칸에는 입력하지 않아요 (퍼플루 설정의 보안 수준이 '강하게')." };
-  el.scrollIntoView({ block: "center", behavior: "instant" });
-  el.focus(); pageFlash(el);
-  if (el.isContentEditable) {
-    document.execCommand("selectAll", false); document.execCommand("insertText", false, text);
-  } else {
-    const proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(proto, "value").set;   // React 같은 화면에서도 값이 들어가게
-    setter.call(el, text);
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
-  }
-  if (submit) {
-    const opts = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true };
-    el.dispatchEvent(new KeyboardEvent("keydown", opts));
-    el.dispatchEvent(new KeyboardEvent("keypress", opts));
-    el.dispatchEvent(new KeyboardEvent("keyup", opts));
-    if (el.form) { try { el.form.requestSubmit(); } catch { el.form.submit(); } }
-  }
-  return { ok: true, typed: text.slice(0, 60), submitted: !!submit };
-}
-
-function pageScroll(direction, amount) {
-  const step = innerHeight * 0.8 * Math.max(1, Math.min(10, amount)) / 3;
-  if (direction === "top") scrollTo(0, 0);
-  else if (direction === "bottom") scrollTo(0, document.documentElement.scrollHeight);
-  else scrollBy(0, direction === "up" ? -step : step);
-  return { ok: true, scroll: Math.round(scrollY), page_height: document.documentElement.scrollHeight };
-}
-
-function pageHighlight(text) {
-  const t = text.trim().toLowerCase();
-  if (!t) return { ok: false, error: "표시할 글자가 없어요." };
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  const hits = [];
-  while (walker.nextNode()) {
-    const node = walker.currentNode;
-    if (node.nodeValue.toLowerCase().includes(t) && node.parentElement && node.parentElement.offsetParent !== null) hits.push(node.parentElement);
-    if (hits.length >= 5) break;
-  }
-  if (!hits.length) return { ok: false, error: "페이지에서 그 글자를 못 찾았어요." };
-  hits[0].scrollIntoView({ block: "center", behavior: "smooth" });
-  for (const el of hits) {
-    const old = el.style.cssText;
-    el.style.background = "rgba(139,92,246,.25)"; el.style.outline = "3px solid #8B5CF6"; el.style.borderRadius = "6px";
-    setTimeout(() => { el.style.cssText = old; }, 8000);
-  }
-  return { ok: true, highlighted: hits.length };
 }

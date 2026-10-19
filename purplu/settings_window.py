@@ -469,7 +469,9 @@ class SettingsWindow(QWidget):
                            ("computer_control", "컴퓨터 조작 허용 (클릭·타이핑)"),
                            ("cursor_visible", "퍼플루 커서 쓰기 (가리키기·클릭할 때 나타남)"),
                            ("cursor_always", "커서 항상 보이기 (끄면 필요할 때만)"),
-                           ("cursor_follow", "내 마우스 따라다니기")):
+                           ("cursor_follow", "내 마우스 따라다니기"),
+                           ("browser_real_input", "🌐 크롬: 진짜 마우스·키보드로 조작 (확장, 위에 디버깅 알림이 떠요)"),
+                           ("browser_highlights", "🖍 크롬: 사이트 하이라이트·노트 (새로고침해도 유지)")):
             ch = QCheckBox(label)
             self.checks[key] = ch
             form.addRow("", ch)

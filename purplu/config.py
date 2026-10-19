@@ -50,6 +50,8 @@ DEFAULTS = {
     "show_thoughts": True,
     "show_steps": True,
     "show_commands": True,
+    "browser_real_input": True,                        # 크롬 확장: 진짜 마우스·키보드(디버거)로 조작
+    "browser_highlights": True,                        # 크롬 확장: 사이트 하이라이트·노트
     "python_enabled": True,                            # 퍼플루가 파이썬 코드를 써서 실행하기
     "security_level": "strict",                       # strict 강하게 / normal 보통 / relaxed 약하게
     "theme": "dark",

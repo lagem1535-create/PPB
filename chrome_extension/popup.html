@@ -3,14 +3,24 @@
 <head>
 <meta charset="utf-8">
 <style>
-  body { margin:0; width:250px; padding:14px; background:#1E1235; color:#F5F3FF; font:14px "Malgun Gothic",sans-serif; }
-  b { color:#C4B5FD; } .on { color:#86EFAC; } .off { color:#FCA5A5; } p { margin:6px 0; color:#A1A1AA; font-size:12px; }
+  body { margin:0; width:300px; padding:14px; background:#1E1235; color:#F5F3FF; font:14px "Malgun Gothic",sans-serif; }
+  b { color:#C4B5FD; } .on { color:#86EFAC; } .off { color:#FCA5A5; } p, .note { margin:6px 0; color:#A1A1AA; font-size:12px; }
+  label { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-top:1px solid #2E1F4F; }
+  input[type=checkbox] { width:18px; height:18px; accent-color:#8B5CF6; }
+  #list { max-height:220px; overflow:auto; margin-top:6px; }
+  .hl { padding:6px 8px; border-radius:8px; margin:4px 0; color:#1F1235; font-size:12px; }
+  .hl i { display:block; color:#4C1D95; font-style:normal; margin-top:2px; }
+  button { background:#3B2A63; color:#fff; border:0; border-radius:8px; padding:6px 10px; cursor:pointer; }
 </style>
 </head>
 <body>
   <div><b>퍼플루 브라우저 손</b></div>
   <div id="st">확인 중…</div>
-  <p>PC의 퍼플루가 켜져 있으면 자동으로 연결돼요. 퍼플루가 이 크롬의 탭을 읽고, 클릭하고, 입력할 수 있어요.</p>
+  <label>🖍 하이라이트·노트 쓰기 <input type="checkbox" id="hlon"></label>
+  <label>🖱 진짜 마우스·키보드로 조작 <input type="checkbox" id="realin"></label>
+  <div class="note">글을 드래그하면 형광펜이 떠요. 칠한 곳을 누르면 📝 노트. 이 사이트에 저장돼서 새로고침해도 남아요.</div>
+  <div><b>이 페이지</b> <span id="cnt"></span> <button id="clear" style="float:right">모두 지우기</button></div>
+  <div id="list"></div>
   <script src="popup.js"></script>
 </body>
 </html>

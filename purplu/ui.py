@@ -334,6 +334,8 @@ class App:
         self.server.on_python_answered = lambda req_id: self.bridge.event.emit("python_answered", {"id": req_id})
         config.on_change(lambda changes: self.bridge.event.emit("settings_changed", changes))
         config.on_change(lambda changes: self.server.broadcast("settings", config.settings()))
+        from . import browser
+        config.on_change(browser.push_settings)
         self.settings_window = SettingsWindow(self.brain, lambda: self.server.url, lambda: self.server.local_url,
                                               lambda: self.server.network_problem)
         self.settings_window.pages_link_fn = self.server.pages_link

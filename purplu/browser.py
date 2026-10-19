@@ -22,6 +22,7 @@ async def handle(ws, loop):
     global _ws, _loop
     _ws, _loop = ws, loop
     print("크롬 확장 연결됨")
+    await _send_settings(ws)
     ping = loop.create_task(_keepalive(ws))
     try:
         async for msg in ws:
@@ -37,6 +38,21 @@ async def handle(ws, loop):
         if _ws is ws:
             _ws = None
         print("크롬 확장 연결 끊김")
+
+
+EXT_KEYS = ("browser_real_input", "browser_highlights", "security_level")
+
+
+async def _send_settings(ws):
+    from . import config
+    s = config.settings()
+    await ws.send_str(json.dumps({"type": "settings", "data": {k: s.get(k) for k in EXT_KEYS}}))
+
+
+def push_settings(changes: dict):
+    """퍼플루 설정이 바뀌면 확장에도 알려 준다 (하이라이트 켜기/끄기 등)."""
+    if connected() and _loop and set(changes) & set(EXT_KEYS):
+        asyncio.run_coroutine_threadsafe(_send_settings(_ws), _loop)
 
 
 async def _keepalive(ws):
