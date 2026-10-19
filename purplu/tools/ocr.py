@@ -5,12 +5,14 @@ Claude 앱·웹페이지처럼 버튼 정보(UI Automation)가 없는 화면도 
 """
 import asyncio
 import re
+import threading
 from difflib import SequenceMatcher
 
 import mss
 
 # winrt는 쓸 때 불러온다: PySide6보다 먼저 불러오면 프로그램이 죽는다
 _engine = None
+_lock = threading.Lock()  # Windows OCR은 한 번에 하나만 돌 수 있다
 
 
 def _get_engine():
@@ -33,7 +35,12 @@ async def _recognize(bgra: bytes, w: int, h: int):
 
 
 def read_screen() -> list[dict]:
-    """[{text, rect:(l,t,r,b), words:[{text, rect}]}] — 위에서 아래로."""
+    """[{text, rect:(l,t,r,b), words:[{text, rect}]}] — 위에서 아래로. 동시에 부르면 앞의 것이 끝날 때까지 기다린다."""
+    with _lock:
+        return _read_screen()
+
+
+def _read_screen() -> list[dict]:
     if not _get_engine():
         return []
     with mss.mss() as sct:
