@@ -6,17 +6,20 @@
 
 const PURPLU_URL = "ws://127.0.0.1:8765/ext";
 let ws = null;
-let connected = false;
+let connected = false, retry = 0;
 
 function connect() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
   try { ws = new WebSocket(PURPLU_URL); } catch { return; }
   ws.onopen = () => {
-    connected = true;
-    ws.send(JSON.stringify({ type: "hello", version: chrome.runtime.getManifest().version }));
+    connected = true; retry = 0;
+    ws.send(JSON.stringify({ type: "hello", version: chrome.runtime.getManifest().version, browser: browserName() }));
     chrome.action.setBadgeText({ text: "" });
   };
-  ws.onclose = () => { connected = false; chrome.action.setBadgeText({ text: "off" }); };
+  ws.onclose = () => {
+    connected = false; chrome.action.setBadgeText({ text: "off" });
+    retry = Math.min(retry * 2 || 1000, 8000); setTimeout(connect, retry);   // 퍼플루가 다시 켜지면 바로 붙게
+  };
   ws.onerror = () => {};
   ws.onmessage = async (e) => {
     const msg = JSON.parse(e.data);
@@ -24,10 +27,52 @@ function connect() {
     if (msg.type === "settings") { await chrome.storage.local.set({ purplu_settings: msg.data || {} }); return; }
     if (!msg.id) return;
     let reply;
+    const show = WORK_CMDS.has(msg.cmd);
+    if (show) await working(true, msg.cmd);
     try { reply = { id: msg.id, ok: true, result: await run(msg.cmd, msg.args || {}) }; }
     catch (err) { reply = { id: msg.id, ok: false, error: String(err && err.message || err) }; }
+    if (show) working(false);
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(reply));
   };
+}
+
+// 어떤 브라우저인지 (크롬·웨일·엣지 모두 같은 확장을 쓴다)
+function browserName() {
+  const ua = navigator.userAgent;
+  if (/Whale\//.test(ua)) return "웨일";
+  if (/Edg\//.test(ua)) return "엣지";
+  if (/OPR\//.test(ua)) return "오페라";
+  if (/SamsungBrowser/.test(ua)) return "삼성 인터넷";
+  return "크롬";
+}
+// 사용자가 이 브라우저 창을 누르면 퍼플루에 알려서, 명령이 지금 쓰는 브라우저로 오게 한다
+chrome.windows.onFocusChanged.addListener(id => {
+  if (id !== chrome.windows.WINDOW_ID_NONE && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "focus" }));
+});
+
+// ---------- 작업 중 표시: 퍼플루가 이 탭을 쓰는 동안 화면 가장자리에 보라색 빛 ----------
+const WORK_CMDS = new Set(["open", "read", "click", "type", "keys", "scroll", "screenshot", "highlight", "back", "forward", "reload", "switch"]);
+let workTimer = null, workTab = null;
+async function working(on, cmd) {
+  const s = await settings();
+  if (s.work_indicator === false) return;
+  clearTimeout(workTimer);
+  if (!on) { workTimer = setTimeout(() => showWork(false), 1500); return; }   // 다음 명령이 곧 오면 계속 켜 둔다
+  await showWork(true, cmd, s);
+}
+async function showWork(on, cmd, s) {
+  let tab;
+  try { tab = await activeTab(); } catch { return; }
+  if (workTab && workTab !== tab.id) chrome.tabs.sendMessage(workTab, { type: "working", on: false }).catch(() => {});
+  workTab = on ? tab.id : null;
+  chrome.action.setBadgeText({ text: on ? "●" : "" });
+  chrome.action.setBadgeBackgroundColor({ color: (s && (s.work_indicator_color || s.color)) || "#8B5CF6" });
+  if (!/^https?:/.test(tab.url || "")) return;
+  const msg = { type: "working", on, cmd, color: s && (s.work_indicator_color || s.color) };
+  try { await chrome.tabs.sendMessage(tab.id, msg); }
+  catch {   // 확장을 깔기 전에 열린 탭이면 표시 스크립트를 넣고 다시
+    try { await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] }); await chrome.tabs.sendMessage(tab.id, msg); } catch {}
+  }
 }
 
 // 서비스 워커가 잠들어도 30초마다 깨어나서 다시 연결
@@ -159,6 +204,7 @@ async function run(cmd, a) {
       else { tab = await activeTab(); await chrome.tabs.update(tab.id, { url }); }
       await chrome.windows.update(tab.windowId, { focused: true });
       await waitLoaded(tab.id);
+      await working(true, "open");
       const t = await chrome.tabs.get(tab.id);
       return { tab_id: t.id, title: t.title, url: t.url };
     }

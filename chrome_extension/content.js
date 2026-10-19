@@ -186,9 +186,32 @@
   pop.querySelector(".del").onclick = async () => { if (!popItem) return; items = items.filter(x => x.id !== popItem.id); await save(); unwrap(popItem.id); hideAll(); };
   pop.querySelectorAll("[data-pc]").forEach(b => b.onclick = async () => { if (!popItem) return; popItem.color = b.dataset.pc; await save(); refreshMark(popItem); });
 
+  // ---------- 작업 중 표시: 퍼플루가 이 탭을 쓰는 동안 가장자리에 빛 + 위쪽 알림 ----------
+  const CMD_NAMES = { open: "여는 중", read: "읽는 중", click: "누르는 중", type: "입력하는 중", keys: "키보드 누르는 중",
+    scroll: "스크롤하는 중", screenshot: "화면 보는 중", highlight: "표시하는 중", back: "뒤로", forward: "앞으로", reload: "새로고침", switch: "탭 바꾸는 중" };
+  const work = document.createElement("div");
+  work.id = "purplu-work";
+  work.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:2147483646;display:none;";
+  const ws_ = work.attachShadow({ mode: "open" });
+  ws_.innerHTML = `<style>
+    .glow{position:fixed;inset:0;border:3px solid var(--c);box-shadow:inset 0 0 28px 6px color-mix(in srgb,var(--c) 55%,transparent);
+      border-radius:6px;animation:pulse 1.6s ease-in-out infinite}
+    @keyframes pulse{0%,100%{opacity:.65}50%{opacity:1}}
+    .pill{position:fixed;top:10px;left:50%;transform:translateX(-50%);background:var(--c);color:#fff;padding:6px 14px;border-radius:999px;
+      font:600 13px "Malgun Gothic",sans-serif;box-shadow:0 6px 20px #0005;white-space:nowrap}
+  </style><div class="glow"></div><div class="pill"></div>`;
+  function setWorking(on, cmd, color) {
+    if (!work.isConnected) document.documentElement.appendChild(work);
+    work.style.setProperty("--c", color || "#8B5CF6");
+    ws_.host.style.setProperty("--c", color || "#8B5CF6");
+    ws_.querySelector(".pill").textContent = "💜 퍼플루가 사용 중" + (CMD_NAMES[cmd] ? " · " + CMD_NAMES[cmd] : "");
+    work.style.display = on ? "block" : "none";
+  }
+
   // ---------- 퍼플루·팝업이 보내는 명령 ----------
   chrome.runtime.onMessage.addListener((m, _s, send) => {
     (async () => {
+      if (m.type === "working") { setWorking(m.on, m.cmd, m.color); return { ok: true }; }
       if (m.type === "hl_list") return { ok: true, url: location.href, title: document.title,
         highlights: items.map(i => ({ text: i.text.slice(0, 200), note: i.note || "", color: i.color })) };
       if (m.type === "hl_clear") { unwrap(); items = []; await save(); return { ok: true, cleared: true }; }

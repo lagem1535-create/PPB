@@ -150,6 +150,13 @@ def open_url(url: str) -> dict:
         url = "https://" + url
     if not url.lower().startswith(("http://", "https://")):
         return {"ok": False, "error": "http/https 주소만 열 수 있어요."}
+    from .. import browser
+    if browser.connected():  # 확장이 있는 브라우저(크롬 등)로 연다 — 기본 브라우저가 다른 것이어도
+        from .web_browser import browser_open
+        r = browser_open(url)
+        if r.get("ok"):
+            return {"ok": True, "opened": url, "browser": r.get("browser"),
+                    "note": "확장이 있는 브라우저에서 열었어. 이어서 browser_read로 읽고 browser_click으로 조작해."}
     trace.cmd(f'webbrowser.open("{url}")')
     webbrowser.open(url)
     return {"ok": True, "opened": url}

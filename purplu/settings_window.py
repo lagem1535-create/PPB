@@ -452,6 +452,18 @@ class SettingsWindow(QWidget):
         color_row.addStretch(1)
         form.addRow("퍼플루 색", color_row)
 
+        # 작업 중 표시 색 (비우면 퍼플루 색)
+        work_row = QHBoxLayout()
+        work_row.setSpacing(6)
+        self.work_btn = QPushButton(objectName="plain")
+        self.work_btn.clicked.connect(self._pick_work_color)
+        same = QPushButton("퍼플루 색과 같게", objectName="plain")
+        same.clicked.connect(lambda: (config.save_settings(work_indicator_color=""), self._paint_work_btn()))
+        work_row.addWidget(self.work_btn)
+        work_row.addWidget(same)
+        work_row.addStretch(1)
+        form.addRow("💜 작업 중 표시 색", work_row)
+
         self.combos = {}
         for key, label in (("live_model", "대화 모델"), ("thinking_level", "생각 깊이"),
                            ("talk_key", "누르고 말하기 키")):
@@ -470,8 +482,9 @@ class SettingsWindow(QWidget):
                            ("cursor_visible", "퍼플루 커서 쓰기 (가리키기·클릭할 때 나타남)"),
                            ("cursor_always", "커서 항상 보이기 (끄면 필요할 때만)"),
                            ("cursor_follow", "내 마우스 따라다니기"),
-                           ("browser_real_input", "🌐 크롬: 진짜 마우스·키보드로 조작 (확장, 위에 디버깅 알림이 떠요)"),
-                           ("browser_highlights", "🖍 크롬: 사이트 하이라이트·노트 (새로고침해도 유지)")):
+                           ("work_indicator", "💜 작업 중 표시 (퍼플루가 쓰는 앱·브라우저 둘레에 빛과 '사용 중')"),
+                           ("browser_real_input", "🌐 브라우저: 진짜 마우스·키보드로 조작 (확장, 위에 디버깅 알림이 떠요)"),
+                           ("browser_highlights", "🖍 브라우저: 사이트 하이라이트·노트 (새로고침해도 유지)")):
             ch = QCheckBox(label)
             self.checks[key] = ch
             form.addRow("", ch)
@@ -521,6 +534,7 @@ class SettingsWindow(QWidget):
             ch.setChecked(s.get("cursor_mode") == "always" if key == "cursor_always" else bool(s[key]))
         self.size_slider.setValue(int(s["cursor_size"]))
         self.py_mode.setCurrentIndex(max(0, self.py_mode.findData(s.get("python_approval", "ask"))))
+        self._paint_work_btn()
         self.sec_level.setCurrentIndex(max(0, self.sec_level.findData(s.get("security_level", "strict"))))
         self.theme_box.setCurrentIndex(max(0, self.theme_box.findData(s.get("theme", "dark"))))
         self.saved_label.setText("")
@@ -595,6 +609,19 @@ class SettingsWindow(QWidget):
     def _set_color(self, hexv: str):
         config.save_settings(color=hexv)
         self._paint_swatches()
+
+    def _paint_work_btn(self):
+        c = config.settings().get("work_indicator_color") or ""
+        shown = c or config.settings().get("color") or "#8B5CF6"
+        self.work_btn.setText("  " + (c or "퍼플루 색") + "  ")
+        self.work_btn.setStyleSheet(f"background:{shown}; color:white; border-radius:8px; padding:6px 10px;")
+
+    def _pick_work_color(self):
+        cur = config.settings().get("work_indicator_color") or config.settings().get("color")
+        c = QColorDialog.getColor(QColor(cur), self, "작업 중 표시 색 고르기")
+        if c.isValid():
+            config.save_settings(work_indicator_color=c.name())
+            self._paint_work_btn()
 
     def _pick_color(self):
         c = QColorDialog.getColor(QColor(config.settings().get("color")), self, "퍼플루 색 고르기")

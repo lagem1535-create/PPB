@@ -13,6 +13,7 @@ from . import config, store
 from .cursor import STATE_COLORS, PurpluCursor
 from .highlight import HighlightOverlay
 from .memo import MemoBoard
+from .workframe import WorkFrame
 from .notes import notes_dir, recorder
 from .settings_window import SettingsWindow
 from .tools import control, images, pyrun
@@ -278,6 +279,10 @@ class PythonApproval(QWidget):
         super().closeEvent(e)
 
 
+DESKTOP_TOOLS = {"open_app", "click", "type_text", "press_keys", "scroll", "look_at_screen", "point_at", "highlight",
+                 "what_is_under_mouse", "windows_action"}  # PC 앱을 직접 다루는 도구 → 작업 중 테두리
+
+
 class App:
     def __init__(self, qt: QApplication, brain_factory, server_factory):
         self.qt = qt
@@ -295,6 +300,7 @@ class App:
         control.on_point = lambda x, y, kind: self.cursor.fly_to_physical.emit(x, y, kind)
         control.on_home = lambda: self.cursor.go_home.emit()
         self.highlights = HighlightOverlay()
+        self.workframe = WorkFrame()  # PC 앱을 조작하는 동안 그 창 둘레에 '퍼플루가 사용 중' 빛
         self.cursor.moved.connect(self.highlights.add_trail)
         control.on_highlight = lambda rects, seconds: self.highlights.show_marks.emit(rects, seconds)
         control.on_clear_highlights = lambda: self.highlights.clear_marks.emit()
@@ -415,6 +421,8 @@ class App:
             self.tray.setIcon(blob_icon(None, data == "sleep"))
             self.tray.setToolTip(f"퍼플루 — {STATE_TEXT[data]}")
             b.pop(10000 if data in ("idle", "sleep") else None)
+            if data != "acting":
+                self.workframe.stop()
         elif kind == "heard":
             b.heard += data
             b.render()
@@ -435,6 +443,9 @@ class App:
             else:
                 b.steps.append(data)
             b.render()
+            tool = (data.get("call") or "").split("(")[0]
+            if tool in DESKTOP_TOOLS and not data["done"]:
+                self.workframe.start(data["label"].rstrip("…"))
         elif kind == "report":
             text = html.escape(data["report"]).replace("\n", "<br>")
             links = " · ".join(f"<a style='color:#C4B5FD' href='{html.escape(s['url'])}'>{html.escape(s['title'] or '출처')}</a>"

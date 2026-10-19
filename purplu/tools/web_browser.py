@@ -11,16 +11,16 @@ def _call(cmd, args=None, timeout=25):
     shown = dict(args or {})
     if shown.get("allow_password"):  # 비밀번호일 수 있는 입력은 화면 기록에 안 보이게
         shown["text"] = f"<{len(shown.get('text', ''))}자 가림>"
-    trace.cmd(f"chrome.{cmd}({', '.join(f'{k}={v!r}' for k, v in shown.items())})  # 크롬 확장")
+    trace.cmd(f"browser.{cmd}({', '.join(f'{k}={v!r}' for k, v in shown.items())})  # " + (browser.current_name() or "브라우저") + " 확장")
     try:
-        return {"ok": True, **browser.call(cmd, args, timeout)}
+        return {"ok": True, "browser": browser.current_name(), **browser.call(cmd, args, timeout)}
     except Exception as e:
         return {"ok": False, "error": str(e)[:300]}
 
 
 def browser_tabs() -> dict:
     try:
-        trace.cmd("chrome.tabs.query({})  # 크롬 확장")
+        trace.cmd("chrome.tabs.query({})  # " + (browser.current_name() or "브라우저") + " 확장")
         tabs = browser.call("tabs")
     except Exception as e:
         return {"ok": False, "error": str(e)[:300]}

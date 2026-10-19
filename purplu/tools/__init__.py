@@ -99,30 +99,30 @@ DECLARATIONS = [
 ]
 
 BROWSER_DECLARATIONS = [
-    _fn("browser_tabs", "크롬에 열린 탭 목록(tab_id, 제목, 주소)을 본다."),
-    _fn("browser_open", "크롬에서 주소를 연다(검색어를 주면 구글 검색). 웹 일은 open_url 대신 이걸 쓴다.",
+    _fn("browser_tabs", "브라우저에 열린 탭 목록(tab_id, 제목, 주소)을 본다."),
+    _fn("browser_open", "브라우저에서 주소를 연다(검색어를 주면 구글 검색). 웹 일은 open_url 대신 이걸 쓴다.",
         {"url": (S, "주소 또는 검색어"), "new_tab": (B, "새 탭으로 열기 (기본 true)")}, ["url"]),
-    _fn("browser_switch_tab", "크롬 탭을 바꾼다.", {"tab_id": (I, "browser_tabs의 tab_id")}, ["tab_id"]),
-    _fn("browser_close_tab", "크롬 탭을 닫는다. tab_id가 없으면 지금 탭.", {"tab_id": (I, "닫을 탭")}),
-    _fn("browser_read", "크롬의 지금 탭을 읽는다: 제목, 주소, 본문 글, 누를 수 있는 것·입력칸 목록(E1, E2…). "
-        "크롬에서 무언가를 하기 전에 먼저 부른다. 화면 OCR보다 훨씬 정확하다.",
+    _fn("browser_switch_tab", "브라우저 탭을 바꾼다.", {"tab_id": (I, "browser_tabs의 tab_id")}, ["tab_id"]),
+    _fn("browser_close_tab", "브라우저 탭을 닫는다. tab_id가 없으면 지금 탭.", {"tab_id": (I, "닫을 탭")}),
+    _fn("browser_read", "브라우저의 지금 탭을 읽는다: 제목, 주소, 본문 글, 누를 수 있는 것·입력칸 목록(E1, E2…). "
+        "브라우저에서 무언가를 하기 전에 먼저 부른다. 화면 OCR보다 훨씬 정확하다.",
         {"max_chars": (I, "본문을 몇 글자까지 (기본 6000)")}),
-    _fn("browser_click", "크롬 페이지를 진짜 마우스로 누른다. browser_read의 E 번호가 가장 정확하고, "
+    _fn("browser_click", "브라우저 페이지를 진짜 마우스로 누른다. browser_read의 E 번호가 가장 정확하고, "
         "번호가 없으면 글자(text), 그래도 안 되면 browser_screenshot 사진의 x,y 좌표로.",
         {"element_id": (S, "E 번호"), "text": (S, "번호를 모르면 버튼·링크 글자"), "x": (I, "사진 좌표 x"), "y": (I, "사진 좌표 y"),
          "double": (B, "두 번 누르기"), "right": (B, "오른쪽 버튼")}),
-    _fn("browser_type", "크롬 페이지의 입력칸을 눌러 진짜 키보드로 글을 넣는다 (한글 OK). 원래 있던 글은 지우고 넣는다.",
+    _fn("browser_type", "브라우저 페이지의 입력칸을 눌러 진짜 키보드로 글을 넣는다 (한글 OK). 원래 있던 글은 지우고 넣는다.",
         {"text": (S, "넣을 글"), "element_id": (S, "입력칸 E 번호 (없으면 지금 커서가 있는 칸)"),
          "submit": (B, "넣고 Enter (검색·전송)"), "clear": (B, "원래 글 지우기 (기본 true)")}, ["text"]),
-    _fn("browser_keys", "크롬에 키보드 키를 누른다. 예: 'Enter', 'Tab', 'Escape', 'ArrowDown', 'ctrl+a', 'shift+tab', "
+    _fn("browser_keys", "브라우저에 키보드 키를 누른다. 예: 'Enter', 'Tab', 'Escape', 'ArrowDown', 'ctrl+a', 'shift+tab', "
         "'PageDown'. 여러 개는 공백으로: 'ArrowDown ArrowDown Enter'",
         {"keys": (S, "누를 키")}, ["keys"]),
-    _fn("browser_screenshot", "크롬 지금 화면을 사진으로 본다. 그림·버튼 모양을 봐야 하거나 번호로 못 찾을 때. "
+    _fn("browser_screenshot", "브라우저 지금 화면을 사진으로 본다. 그림·버튼 모양을 봐야 하거나 번호로 못 찾을 때. "
         "사진 좌표 = browser_click의 x,y."),
-    _fn("browser_scroll", "크롬 페이지를 스크롤한다.",
+    _fn("browser_scroll", "브라우저 페이지를 스크롤한다.",
         {"direction": (S, "down / up / top / bottom"), "amount": (I, "1~10, 기본 3")}),
-    _fn("browser_nav", "크롬 뒤로/앞으로/새로고침.", {"action": (S, "back / forward / reload")}, ["action"]),
-    _fn("browser_highlight", "크롬 페이지의 글자에 형광펜을 칠하고(노트도 붙일 수 있음) 그곳으로 스크롤한다. "
+    _fn("browser_nav", "브라우저 뒤로/앞으로/새로고침.", {"action": (S, "back / forward / reload")}, ["action"]),
+    _fn("browser_highlight", "브라우저 페이지의 글자에 형광펜을 칠하고(노트도 붙일 수 있음) 그곳으로 스크롤한다. "
         "이 사이트에 저장돼서 새로고침해도 남는다. text에는 페이지 글을 그대로.",
         {"text": (S, "칠할 글자 (페이지에 있는 그대로)"), "note": (S, "붙일 노트 (선택)"),
          "color": (S, "yellow / green / pink / purple (기본 purple)")}, ["text"]),
@@ -208,19 +208,19 @@ LABELS = {
     "save_skill": lambda a: f"🧩 스킬 '{a.get('name', '')}' 저장 중…",
     "delete_skill": lambda a: f"스킬 '{a.get('name', '')}' 지우는 중…",
     "generate_image": lambda a: "🎨 그림 그리는 중…",
-    "browser_tabs": lambda a: "크롬 탭 보는 중…",
-    "browser_open": lambda a: f"크롬에서 '{a.get('url', '')}' 여는 중…",
-    "browser_switch_tab": lambda a: "크롬 탭 바꾸는 중…",
-    "browser_close_tab": lambda a: "크롬 탭 닫는 중…",
-    "browser_read": lambda a: "크롬 페이지 읽는 중…",
-    "browser_click": lambda a: f"크롬에서 '{a.get('text') or a.get('element_id', '')}' 누르는 중…",
-    "browser_type": lambda a: "크롬에 입력하는 중…",
-    "browser_keys": lambda a: f"크롬 키보드: {a.get('keys', '')}",
-    "browser_screenshot": lambda a: "크롬 화면 보는 중…",
+    "browser_tabs": lambda a: "브라우저 탭 보는 중…",
+    "browser_open": lambda a: f"브라우저에서 '{a.get('url', '')}' 여는 중…",
+    "browser_switch_tab": lambda a: "브라우저 탭 바꾸는 중…",
+    "browser_close_tab": lambda a: "브라우저 탭 닫는 중…",
+    "browser_read": lambda a: "브라우저 페이지 읽는 중…",
+    "browser_click": lambda a: f"브라우저에서 '{a.get('text') or a.get('element_id', '')}' 누르는 중…",
+    "browser_type": lambda a: "브라우저에 입력하는 중…",
+    "browser_keys": lambda a: f"브라우저 키보드: {a.get('keys', '')}",
+    "browser_screenshot": lambda a: "브라우저 화면 보는 중…",
     "browser_notes": lambda a: "하이라이트·노트 보는 중…",
-    "browser_scroll": lambda a: "크롬 스크롤하는 중…",
-    "browser_nav": lambda a: f"크롬 {a.get('action', '')}…",
-    "browser_highlight": lambda a: f"크롬에서 '{a.get('text', '')}' 표시하는 중…",
+    "browser_scroll": lambda a: "브라우저 스크롤하는 중…",
+    "browser_nav": lambda a: f"브라우저 {a.get('action', '')}…",
+    "browser_highlight": lambda a: f"브라우저에서 '{a.get('text', '')}' 표시하는 중…",
     "leave_memo": lambda a: "메모 남기는 중…",
     "run_python": lambda a: f"🐍 파이썬 실행: {a.get('purpose', '')}",
     "start_meeting_notes": lambda a: "● 회의록 녹음 시작",

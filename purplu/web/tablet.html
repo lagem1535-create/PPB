@@ -905,7 +905,14 @@ function fillSettings() {
       row("🐍 파이썬 코드 실행 허용", "", tog("python_enabled")),
       row("🐍 실행 전 확인", "", sel("python_approval", pyModes, "pymode"), true),
     ]),
-    group("🌐 크롬 확장", [
+    group("💜 작업 중 표시", [
+      row("퍼플루가 쓰는 앱·브라우저에 표시", "둘레에 빛 + '퍼플루가 사용 중' (계산기 같은 PC 앱도)", tog("work_indicator")),
+      row("표시 색", "", `<div class="swatches" id="workcolors"><button data-w="" title="퍼플루 색과 같게"
+        style="background:${esc(settings.color || "#8B5CF6")};font-size:11px;color:#fff;width:auto;padding:0 10px;border-radius:17px"
+        class="${settings.work_indicator_color ? "" : "on"}">퍼플루 색</button>${Object.entries(SWATCHES).map(([n, h]) =>
+        `<button class="${(settings.work_indicator_color || "").toLowerCase() === h.toLowerCase() ? "on" : ""}" title="${n}" data-w="${h}" style="background:${h}"></button>`).join("")}</div>`, true),
+    ]),
+    group("🌐 브라우저 확장 (크롬·웨일·엣지)", [
       row("진짜 마우스·키보드로 조작", "버튼이 잘 눌리고 키보드도 돼요. 크롬 위에 '디버깅 중' 알림이 떠요", tog("browser_real_input")),
       row("🖍 사이트 하이라이트·노트", "글을 드래그해 칠하고 노트를 남겨요. 새로고침해도 남아요", tog("browser_highlights")),
     ]),
@@ -944,6 +951,7 @@ function fillSettings() {
   const setColor = c => { save({ color: c }); applyColor(); fillSettings(); };
   $("#setpage").querySelectorAll(".swatches button").forEach(b => b.onclick = e => { e.preventDefault(); setColor(b.dataset.c); });
   $("#cpick").onchange = e => setColor(e.target.value);
+  $("#setpage").querySelectorAll("[data-w]").forEach(b => b.onclick = e => { e.preventDefault(); save({ work_indicator_color: b.dataset.w }); fillSettings(); });
   if ($("#changepc")) $("#changepc").onclick = () => { $("#panel").classList.remove("open"); showSetup(); };
 }
 </script>
