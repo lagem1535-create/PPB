@@ -386,6 +386,10 @@ class TabletServer:
             rows = await asyncio.to_thread(store.list_conversations)
             await self._reply(ws, "conversations", {"items": rows,
                                                     "current": config.settings().get("current_conversation")})
+        elif t == "chat_history":
+            cid = config.settings().get("current_conversation") or ""
+            items = (await asyncio.to_thread(store.messages, cid))[-60:] if cid else []
+            await self._reply(ws, "history", {"id": cid, "items": items})
         elif t == "get_messages":
             await self._reply(ws, "messages", {"id": m["id"], "items": await asyncio.to_thread(store.messages, m["id"])})
         elif t == "new_conversation":

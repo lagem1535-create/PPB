@@ -140,7 +140,7 @@ class Bubble(QWidget):
 
     def set_state(self, state: str, dots: int = 0):
         self.face.setPixmap(blob_icon(None, state == "sleep").pixmap(32, 32))
-        self.status.setStyleSheet(f"color:{STATE_COLORS[state] if state not in ('idle', 'sleep') else '#E9D5FF'};"
+        self.status.setStyleSheet(f"color:{STATE_COLORS[state] if state not in ('idle', 'sleep') else ('#4C1D95' if is_light() else '#E9D5FF')};"
                                   " font-weight:600;")
         text = STATE_TEXT[state]
         if state == "thinking":  # 생각 중 점 애니메이션
