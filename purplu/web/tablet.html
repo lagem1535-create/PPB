@@ -425,8 +425,8 @@ function crown(x, y, w, h) {  // 머리 위 꼭지: 퍼플루는 작은 새싹
 function draw(f) {
   const W = cv.width, H = cv.height;
   g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = settings.theme === "light" ? "#FAF8FF" : "#000"; g.fillRect(0, 0, W, H);
-  // 가로 화면은 원본처럼 꽉 차게, 세로 화면은 두 눈이 다 보이게
-  const s = Math.min(Math.max(W / DW, H / DH), W / DW * 1.35);
+  // 얼굴 너비가 화면 안에 다 들어오게 (반반·세로 화면에서도 잘리지 않게), 높이는 화면의 85%까지
+  const s = Math.min(W / (DW + 40), H * 0.85 / DH);
   g.translate((W - DW * s) / 2, H - DH * s); g.scale(s, s);
   const base = hex2rgb(settings.color), light = mix(base, .55, [255, 255, 255]), dark = mix(base, .35, [10, 0, 40]);
   const navy = css(mix(base, .72, [15, 10, 60])), ink = "#1A1426";
@@ -908,7 +908,12 @@ setMode(prefs.chatMode);
 if (!prefs.chatAlways && prefs.chatMode !== "full") setSplit(false);
 $("#sidefull").onclick = () => setMode(MODES[(MODES.indexOf(prefs.chatMode) + 1) % 3]);
 $("#sidegear").onclick = openPanel;
-$("#sideclose").onclick = () => { if (prefs.chatMode === "full") setMode("float"); setSplit(false, true); };
+const PC_WINDOW = new URLSearchParams(location.search).get("view") === "chat";
+$("#sideclose").onclick = () => {
+  if (PC_WINDOW) { location.hash = "close-" + Date.now(); return; }   // PC 대화창: 퍼플루 앱이 창을 숨긴다
+  if (prefs.chatMode === "full") setMode("float"); setSplit(false, true);
+};
+if (PC_WINDOW) { $("#sidefull").style.display = "none"; }
 setTimeout(() => { $("#hint").style.opacity = 0; }, 8000);
 
 // ---------- 설정 패널 ----------
@@ -1007,6 +1012,7 @@ function fillSettings() {
       row("퍼플루 색", "", swatches, true),
       row("화면 테마", "", sel("theme", themes, "themesel")),
       row("💬 오른쪽 대화방 항상 보이기", "제미나이처럼 왼쪽 퍼플루, 오른쪽 대화 (이 기기만)", tog("chatAlways", true)),
+      row("💬 PC: 말풍선 대신 대화창", "PC에서 말하면 오른쪽 아래에 글로도 쓸 수 있는 대화창이 떠요", tog("pc_chat_window")),
       row("💬 대화창 모양", "대화창 머리줄 버튼으로도 바꿔요 (이 기기만)", `<select id="chatmode">${MODES.map(m =>
         `<option value="${m}" ${prefs.chatMode === m ? "selected" : ""}>${MODE_ICON[m]} ${MODE_NAME[m]}</option>`).join("")}</select>`),
       row("입력칸 빛 색", "", `<div class="swatches" id="glows">${Object.entries(GLOWS).map(([k, g]) =>

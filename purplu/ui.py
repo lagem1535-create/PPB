@@ -133,6 +133,8 @@ class Bubble(QWidget):
         p.setPen(QPen(border, 2))
         p.drawRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 18, 18)
 
+    redirect = None  # 설정이 켜져 있으면 말풍선 대신 부를 것 (App이 대화창 열기를 넣는다)
+
     def reset(self):
         self.heard, self.thought, self.reply = "", "", ""
         self.steps: list[dict] = []
@@ -215,6 +217,11 @@ class Bubble(QWidget):
             self.move(QPoint(area.right() - self.width() - 16, area.bottom() - self.height() - 16))
 
     def pop(self, hide_after_ms: int | None = None):
+        if self.redirect and config.settings().get("pc_chat_window", True):
+            self.hide()
+            if self.heard or self.reply or self.steps or self.extra or self.thought:
+                self.redirect()   # 말풍선 대신 대화창 (보여 줄 내용이 있을 때만)
+            return
         self.render()
         self.show()
         self.raise_()
@@ -320,6 +327,7 @@ class App:
         images.on_image = show_image
 
         self.bubble = Bubble()
+        self.bubble.redirect = lambda: self.open_chat(activate=False)  # 설정에 따라 말풍선 대신 대화창
         self.bubble.anchor = self.cursor
         self.bubble.open_settings.connect(self.open_settings)
         # 꾹 누르고 있는 동안 말하기 (커서·말풍선 둘 다)
@@ -379,12 +387,12 @@ class App:
                                  "나를 우클릭하면 설정이 열려.")
         self.bubble.pop(8000)
 
-    def open_chat(self):
+    def open_chat(self, activate: bool = True):
         """PC 대화창 (탭·웹과 같은 대화창, 같은 대화)."""
         if not getattr(self, "chat_window", None):
             from .chatwindow import ChatWindow
             self.chat_window = ChatWindow(blob_icon(None, False))
-        self.chat_window.open()
+        self.chat_window.open(activate)
 
     def open_settings(self):
         self.settings_window.open()

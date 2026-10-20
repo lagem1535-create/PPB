@@ -57,6 +57,7 @@ DEFAULTS = {
     "python_enabled": True,                            # 퍼플루가 파이썬 코드를 써서 실행하기
     "security_level": "strict",                       # strict 강하게 / normal 보통 / relaxed 약하게
     "theme": "dark",
+    "pc_chat_window": True,                           # PC: 말풍선 대신 타이핑할 수 있는 대화창을 오른쪽 아래에
     "chat_glow": "rainbow",                            # 입력칸 빛 색 조합: rainbow(다채로운) / blue_purple / pink_purple / sunset / ocean / mono
     "chat_color": "",                                 # 대화창 색 (내 말풍선·보내기 버튼). 비우면 퍼플루 색
     "image_model": "gemini-3.1-flash-image",          # 그림 만들기 모델                                   # dark 어둡게 / light 밝게
