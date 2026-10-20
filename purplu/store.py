@@ -116,8 +116,9 @@ def listen(on_settings, on_conversations, on_memos=None):
         backoff = 1
         while True:
             try:
+                # Firebase는 30초마다 살아 있다는 신호를 보낸다 → 45초 동안 아무것도 없으면 멈춘 연결로 보고 새로 붙는다
                 with httpx.stream("GET", f"{DB_URL}/{ROOT}.json", headers={"Accept": "text/event-stream"},
-                                  timeout=httpx.Timeout(10, read=90)) as r:
+                                  timeout=httpx.Timeout(8, read=45)) as r:
                     r.raise_for_status()
                     backoff = 1
                     event = None
@@ -131,7 +132,7 @@ def listen(on_settings, on_conversations, on_memos=None):
             except Exception as e:
                 print("Firebase 동기화 다시 연결:", e)
             time.sleep(backoff)
-            backoff = min(backoff * 2, 30)
+            backoff = min(backoff * 2, 3)  # 인터넷이 잠깐 끊겨도 돌아오면 3초 안에 다시 동기화
 
     threading.Thread(target=run, daemon=True, name="purplu-sync").start()
 
