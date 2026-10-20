@@ -33,6 +33,8 @@ SYSTEM = """너는 '퍼플루'야. 사용자의 Windows PC에 사는 귀여운 �
 - 빠르게 움직여: 할 일이 분명하면 묻지 말고 바로 도구를 써. 화면 보기(look_at_screen)는 꼭 필요할 때만, 한 번에.
   예: 계산기 계산은 open_app 다음 바로 type_text("3*9=") → look_at_screen 한 번으로 결과 확인.
 - 사용자가 무슨 언어로 말하든, 잘 안 들려도 항상 한국어로만, 친근한 반말로 말해.
+- 말을 잘 못 알아들었으면(뜻이 이상하거나 끊겼으면) 짐작해서 엉뚱한 일을 하지 말고 "혹시 ~라는 말이야?" 하고 짧게 되물어.
+  비슷한 발음(예: P/B, M/N, 영어 철자)은 앞뒤 대화를 보고 가장 그럴듯하게 이해해.
 - 대화 상대로서: 일을 시킬 땐 짧게, 수다·질문엔 친구처럼 2~4문장으로 성의 있게 답해. 맞장구치고, 네 생각·추천도 말하고,
   가끔 되물어서 대화를 이어 가. "모르겠어"로 끝내지 말고 찾아보거나 아는 걸로 최선을 다해 답해.
 - 앱을 열어 달라고 하면 open_app을 써.
@@ -92,8 +94,8 @@ def system_prompt() -> str:
 PREVIEW_TEXT = "안녕! 나는 퍼플루야. 오늘은 뭘 도와줄까? 필요한 거 있으면 언제든 불러 줘!"
 VOICE_DIR = config.DATA_DIR / "voices"
 
-VOICE_RMS = 450          # 이보다 크면 '목소리가 들린다'고 본다 (16비트 소리 크기)
-PREROLL_CHUNKS = 12      # 목소리가 시작되기 직전 약 0.5초도 같이 보낸다 (첫 글자가 안 잘리게)
+VOICE_RMS = 300          # 이보다 크면 '목소리가 들린다'고 본다 (16비트 소리 크기)
+PREROLL_CHUNKS = 20      # 목소리가 시작되기 직전 약 0.8초도 같이 보낸다 (첫 글자가 안 잘리게)
 
 SESSION_KEYS = {"live_model", "thinking_level", "show_thoughts", "voice", "computer_control", "security_level"}
 HISTORY_LIMIT = 30
@@ -292,11 +294,12 @@ class Brain:
             response_modalities=["AUDIO"],
             system_instruction=system_prompt(),
             tools=[types.Tool(function_declarations=tools.declarations(s["computer_control"]))],
-            input_audio_transcription=types.AudioTranscriptionConfig(),
+            # 한국어로 알아듣게 (언어를 안 정하면 짧은 말을 스페인어·일본어 등으로 잘못 알아듣곤 했다)
+            input_audio_transcription=types.AudioTranscriptionConfig(language_codes=["ko-KR"]),
             output_audio_transcription=types.AudioTranscriptionConfig(),
             realtime_input_config=types.RealtimeInputConfig(
                 automatic_activity_detection=types.AutomaticActivityDetection(disabled=True)),
-            speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(
+            speech_config=types.SpeechConfig(language_code="ko-KR", voice_config=types.VoiceConfig(
                 prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=s["voice"]))),
             session_resumption=types.SessionResumptionConfig(handle=self._resume_handle),
             context_window_compression=types.ContextWindowCompressionConfig(
@@ -458,7 +461,7 @@ class Brain:
                 self._mic.active = False
 
     async def _talk_end(self, quiet=False):
-        await asyncio.sleep(0.12)        # 마지막 소리 조각까지 받고
+        await asyncio.sleep(0.35)        # 손을 뗀 뒤 마지막 말끝까지 받고 (너무 빨리 끊으면 끝 글자를 놓친다)
         if self._mic:
             self._mic.active = False
         if self._activity_open:

@@ -106,8 +106,13 @@ class PurpluCursor(QWidget):
     def always(self) -> bool:
         return config.settings().get("cursor_mode", "auto") == "always"
 
+    dock = None  # 대화창이 떠 있으면 그 창(QRect)을 넣어 준다 → 퍼플루가 대화창 왼쪽 아래 옆에 선다
+
     def home_point(self) -> QPointF:
         area = QGuiApplication.primaryScreen().availableGeometry()
+        d = self.dock() if callable(self.dock) else None
+        if d is not None:
+            return QPointF(d.left() - self.width() + self.PAD - 4, d.bottom() - self.height() + self.PAD - 10)
         return QPointF(area.right() - self.width() + self.PAD - 10, area.bottom() - self.height() + self.PAD - 10)
 
     def _place(self, tip: QPointF):
@@ -122,6 +127,8 @@ class PurpluCursor(QWidget):
         if not config.settings().get("cursor_visible", True):
             return False
         if self.always() or self.mode in ("fly", "follow") or self._holding:
+            return True
+        if self.state in ("listening", "thinking", "acting", "speaking"):  # 대화하는 동안엔 오른쪽에 나타난다
             return True
         return time.monotonic() < self._needed_until
 
@@ -224,6 +231,10 @@ class PurpluCursor(QWidget):
             self.update()
 
     def set_state(self, state: str):
+        if state in ("idle", "sleep") and self.state in ("listening", "thinking", "acting", "speaking"):
+            self._needed_until = max(self._needed_until, time.monotonic() + 6)  # 대답이 끝나도 잠깐 더 있다가 들어간다
+        if state in ("listening", "thinking", "speaking") and self.mode == "home":
+            self._place(self.home_point())   # 대화창 옆 제자리로
         self.state = state
         if state == "acting":
             self._needed_until = max(self._needed_until, time.monotonic() + 3)

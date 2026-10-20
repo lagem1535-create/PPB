@@ -713,12 +713,15 @@ connect();
 let ctx = null, micNode = null, playAt = 0, sources = [];
 const WORKLET = `
 class Down extends AudioWorkletProcessor {
-  constructor() { super(); this.ratio = sampleRate / 16000; this.acc = []; this.pos = 0; }
+  constructor() { super(); this.ratio = sampleRate / 16000; this.acc = []; this.pos = 0; this.sum = 0; this.n = 0; }
   process(inputs) {
     const ch = inputs[0][0]; if (!ch) return true;
     for (let i = 0; i < ch.length; i++) {
-      this.pos += 1;
-      if (this.pos >= this.ratio) { this.pos -= this.ratio; const v = Math.max(-1, Math.min(1, ch[i])); this.acc.push(v * 32767); }
+      this.sum += ch[i]; this.n += 1; this.pos += 1;   // 사이 소리를 평균 내서 줄인다 (그냥 건너뛰면 소리가 찌그러진다)
+      if (this.pos >= this.ratio) {
+        this.pos -= this.ratio;
+        const v = Math.max(-1, Math.min(1, this.sum / this.n)); this.acc.push(v * 32767); this.sum = 0; this.n = 0;
+      }
     }
     if (this.acc.length >= 640) {
       const out = new Int16Array(this.acc.splice(0, 640)); let sum = 0;

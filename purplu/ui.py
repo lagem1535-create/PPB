@@ -328,6 +328,8 @@ class App:
 
         self.bubble = Bubble()
         self.bubble.redirect = lambda: self.open_chat(activate=False)  # 설정에 따라 말풍선 대신 대화창
+        cw = lambda: self.chat_window.frameGeometry() if getattr(self, "chat_window", None) and self.chat_window.isVisible() else None  # noqa: E731
+        self.cursor.dock = cw
         self.bubble.anchor = self.cursor
         self.bubble.open_settings.connect(self.open_settings)
         # 꾹 누르고 있는 동안 말하기 (커서·말풍선 둘 다)
