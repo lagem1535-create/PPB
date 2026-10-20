@@ -355,7 +355,8 @@ class App:
         menu.addAction(QAction(f"말하기: {key} 키를 누르고 있기", menu, enabled=False))
         menu.addSeparator()
         menu.addAction("설정 · 대화목록…", self.open_settings)
-        menu.addAction("💬 글로 채팅하기 (브라우저)", lambda: webbrowser.open(f"http://localhost:{config.settings()['tablet_port']}/"))
+        menu.addAction("💬 대화창 열기 (Ctrl+Alt+C)", self.open_chat)
+        menu.addAction("🌐 브라우저로 열기", lambda: webbrowser.open(f"http://localhost:{config.settings()['tablet_port']}/"))
         menu.addAction("새 대화", lambda: self.brain.new_conversation())
         self.act_meeting = menu.addAction("● 회의록 시작", self.toggle_meeting)
         menu.addAction("회의록 폴더 열기", self.open_notes_folder)
@@ -377,6 +378,13 @@ class App:
             self.bubble.extra = (f"안녕! 나를 <b>꾹 누르고</b> 있거나 <b>{key}</b> 키를 누르고 있는 동안 말해 줘.<br>"
                                  "나를 우클릭하면 설정이 열려.")
         self.bubble.pop(8000)
+
+    def open_chat(self):
+        """PC 대화창 (탭·웹과 같은 대화창, 같은 대화)."""
+        if not getattr(self, "chat_window", None):
+            from .chatwindow import ChatWindow
+            self.chat_window = ChatWindow(blob_icon(None, False))
+        self.chat_window.open()
 
     def open_settings(self):
         self.settings_window.open()
@@ -505,6 +513,8 @@ class App:
             self.memos.refresh(data)
             if self.settings_window.isVisible():
                 self.settings_window.show_memos(data)
+        elif kind == "open_chat":
+            self.open_chat()
         elif kind == "cursor_point":
             self.cursor.show_at_mouse()
         elif kind == "cursor_toggle":

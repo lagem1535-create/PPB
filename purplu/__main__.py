@@ -45,6 +45,10 @@ def main():
     _setup_log()
     if moved:
         print("예전 데이터를 data/ 로 옮김:", len(moved), "개")
+    try:
+        import PySide6.QtWebEngineWidgets  # noqa: F401  PC 대화창용 — QApplication보다 먼저 불러와야 한다
+    except ImportError:
+        pass
     qt = QApplication(sys.argv)
     qt.setQuitOnLastWindowClosed(False)
     config.load()
@@ -64,6 +68,7 @@ def main():
     hotkey.watch(config.settings()["talk_key"], app.brain.talk_start, app.brain.talk_end)
     hotkey.watch("ctrl+alt+s", lambda: app.bridge.event.emit("stop", None))
     # 원본의 단축키들: 마우스 자리 가리키기 / 커서 항상 보이기 켜고 끄기 / 집으로
+    hotkey.watch("ctrl+alt+c", lambda: app.bridge.event.emit("open_chat", None))
     hotkey.watch("ctrl+alt+p", lambda: app.bridge.event.emit("cursor_point", None))
     hotkey.watch("ctrl+alt+h", lambda: app.bridge.event.emit("cursor_toggle", None))
     hotkey.watch("ctrl+alt+d", lambda: app.bridge.event.emit("cursor_home", None))

@@ -57,6 +57,8 @@ DEFAULTS = {
     "python_enabled": True,                            # 퍼플루가 파이썬 코드를 써서 실행하기
     "security_level": "strict",                       # strict 강하게 / normal 보통 / relaxed 약하게
     "theme": "dark",
+    "chat_glow": "rainbow",                            # 입력칸 빛 색 조합: rainbow(다채로운) / blue_purple / pink_purple / sunset / ocean / mono
+    "chat_color": "",                                 # 대화창 색 (내 말풍선·보내기 버튼). 비우면 퍼플루 색
     "image_model": "gemini-3.1-flash-image",          # 그림 만들기 모델                                   # dark 어둡게 / light 밝게
     "python_approval": "ask",                          # ask = 매번 물어보기 / auto_safe = 안전하면 자동 / auto_all = 모두 자동
     "python_timeout": 60,                              # 초
