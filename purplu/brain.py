@@ -514,7 +514,9 @@ class Brain:
     def _flush_turn(self):
         """한 번 주고받은 말을 대화목록에 저장."""
         user, model = self._turn_user.strip(), self._turn_model.strip()
+        steps = getattr(self, "_turn_steps", [])
         self._turn_user = self._turn_model = ""
+        self._turn_steps = []
         cid = getattr(self, "_cid", None)
         if not cid or not (user or model):
             return
@@ -522,8 +524,8 @@ class Brain:
         def save():
             if user:
                 store.add_message(cid, "user", user)
-            if model:
-                store.add_message(cid, "model", model)
+            if model or steps:
+                store.add_message(cid, "model", model or "(실행만 했어요)", steps)
             convs = {c["id"]: c for c in store.list_conversations()}
             if user and convs.get(cid, {}).get("title") == "새 대화":
                 store.rename_conversation(cid, user[:30])
@@ -644,8 +646,12 @@ class Brain:
             image = result.pop("_image", None)
             if image:
                 images.append(image)
-            self.emit("step", {"label": label, "call": call, "done": True, "ok": bool(result.get("ok")),
-                               "result": tools.result_text(result), "secs": round(time.perf_counter() - t0, 1)})
+            done = {"label": label, "call": call, "done": True, "ok": bool(result.get("ok")),
+                    "result": tools.result_text(result), "secs": round(time.perf_counter() - t0, 1)}
+            self.emit("step", done)
+            if not hasattr(self, "_turn_steps"):
+                self._turn_steps = []
+            self._turn_steps.append({k: done[k] for k in ("call", "ok", "result", "secs")})
             if fc.name == "web_research" and result.get("ok"):
                 self.emit("report", result)
             if fc.name == "find_file" and result.get("ok"):

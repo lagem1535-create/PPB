@@ -6,15 +6,14 @@
 퍼플루 → 대화창 (표준 입력 한 줄씩): show / show_quiet / hide / pin / autohide
 대화창 → 퍼플루 (표준 출력 한 줄씩): geom 왼쪽 위 너비 높이 보이는지(1/0)
 """
-import os
 import sys
 import threading
 
-# 그래픽 카드 쪽 문제로 죽는 일을 줄인다 (대화창엔 소프트웨어 그리기로 충분)
-os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --disable-gpu-compositing")
+# 소프트웨어 그리기는 창 크기를 바꾸면 까맣게 멈춰서 보통(그래픽 카드) 그리기를 쓴다.
+# 혹시 죽어도 이건 따로 도는 프로그램이라 퍼플루는 안 꺼지고, 퍼플루가 대화창을 다시 켠다.
 
 import PySide6.QtWebEngineWidgets  # noqa: E402,F401  QApplication보다 먼저
-from PySide6.QtCore import QObject, QTimer, Qt, Signal  # noqa: E402
+from PySide6.QtCore import QObject, QTimer, Signal  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from . import config  # noqa: E402
@@ -26,7 +25,6 @@ class _Pipe(QObject):
 
 
 def main():
-    QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL)
     qt = QApplication(sys.argv)
     qt.setQuitOnLastWindowClosed(False)
     config.load()
@@ -43,10 +41,15 @@ def main():
         elif cmd == "pin":
             config.load()
             w.apply_pin()
+        elif cmd == "settings":   # 맨 위로·자리 차지 설정이 바뀜
+            config.load()
+            w.apply_on_top()
+            w.apply_pin()
         elif cmd == "autohide":
             config.load()
             w.auto_hide()
         elif cmd == "quit":
+            w._release_space()
             qt.quit()
     pipe.command.connect(run)
 
@@ -65,6 +68,7 @@ def main():
     QTimer(qt, timeout=report).start(500)
     for cmd in sys.argv[1:]:
         run(cmd)
+    qt.aboutToQuit.connect(w._release_space)   # 꺼질 때 차지했던 자리 돌려주기
     sys.exit(qt.exec())
 
 

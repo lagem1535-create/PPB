@@ -485,6 +485,8 @@ class SettingsWindow(QWidget):
                            ("cursor_follow", "내 마우스 따라다니기"),
                            ("pc_chat_window", "💬 말풍선 대신 대화창 (오른쪽 아래, 글로도 입력)"),
                            ("pc_chat_pinned", "📌 PC 대화창을 오른쪽에 고정 (안 사라짐)"),
+                           ("pc_chat_on_top", "⬆ PC 대화창 언제나 맨 위로"),
+                           ("pc_chat_dock", "↔ 고정하면 대화창만큼 자리 차지 (다른 창이 그만큼 작아져요)"),
                            ("work_indicator", "💜 작업 중 표시 (퍼플루가 쓰는 앱·브라우저 둘레가 빛나요)"),
                            ("browser_real_input", "🌐 브라우저: 진짜 마우스·키보드로 조작 (확장, 위에 디버깅 알림이 떠요)"),
                            ("browser_highlights", "🖍 브라우저: 사이트 하이라이트·노트 (새로고침해도 유지)")):

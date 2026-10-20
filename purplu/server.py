@@ -131,32 +131,33 @@ def _local_networks() -> list:
 
 
 def _mention_list() -> list[dict]:
-    """@로 부를 수 있는 것: 브라우저(크롬·웨일), 열린 창, 브라우저 탭, 앱, 메모."""
-    out = []
+    """@로 부를 수 있는 것: 지금 열린 탭·창 먼저, 그다음 브라우저, 앱, 메모."""
+    out, later = [], []
     try:
         from . import browser
         connected = browser.names()
         for name in ("크롬", "웨일", "엣지"):
-            out.append({"label": name, "kind": "브라우저" if name in connected else "브라우저 (확장 연결 안 됨)", "id": name})
+            later.append({"label": name, "kind": "브라우저" if name in connected else "브라우저 (확장 연결 안 됨)", "id": name})
     except Exception:
         pass
     try:
         from .tools.windows import _windows
         for _, title in _windows()[:20]:
             if "퍼플루" not in title:
-                out.append({"label": title[:40], "kind": "창", "id": title})
+                out.append({"label": title[:40], "kind": "열린 창", "id": title})
     except Exception:
         pass
     try:
         from . import browser
         if browser.connected():
             for t in browser.call("tabs", timeout=4)[:20]:
-                out.append({"label": (t.get("title") or t.get("url") or "")[:40], "kind": "탭", "id": t["tab_id"],
-                            "url": t.get("url", "")})
+                out.insert(0, {"label": (t.get("title") or t.get("url") or "")[:40], "kind": "열린 탭", "id": t["tab_id"],
+                               "url": t.get("url", "")})
     except Exception:
         pass
     try:
         from .tools.apps import all_apps
+        out += later
         for name in sorted(all_apps())[:400]:
             out.append({"label": name[:40], "kind": "앱", "id": name})
     except Exception:
@@ -216,9 +217,9 @@ def _expand_chat(text: str, mentions: list) -> str:
                              f"안 되면 사용자에게 {name}에 퍼플루 확장을 설치·새로고침해 달라고 해")
         elif m.get("kind") == "앱":
             notes.append(f"@{label} = PC 앱 '{m.get('id')}' → open_app으로 열고 조작")
-        elif m.get("kind") == "탭":
+        elif m.get("kind") in ("탭", "열린 탭"):
             notes.append(f"@{label} = 브라우저 탭 (tab_id {m.get('id')}, {m.get('url', '')}) → browser_switch_tab 후 browser_read")
-        elif m.get("kind") == "창":
+        elif m.get("kind") in ("창", "열린 창"):
             notes.append(f"@{label} = PC에 열린 창 '{m.get('id')}' → windows_action focus_window 후 look_at_screen")
         elif m.get("kind") == "메모":
             notes.append(f"@{label} = 메모 (id {m.get('id')})")
@@ -469,7 +470,7 @@ class TabletServer:
     async def _handle(self, ws, m: dict):
         t = m.get("type")
         if t == "talk_start":
-            self.brain.talk_start("tablet")
+            self.brain.talk_start("pc" if m.get("pc") else "tablet")   # PC 대화창 = PC 마이크·스피커
         elif t == "talk_end":
             self.brain.talk_end(quiet=bool(m.get("short")))
         elif t == "get_settings":

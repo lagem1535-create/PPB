@@ -133,6 +133,17 @@
   body.light #side .head button { color:#52525B; } body.light .dots span { background:#7C3AED !important; }
   body.light #dot { box-shadow:0 0 0 2px #fff; }
   body.light #msglist .u b { color:#6D28D9 } body.light #msglist .m b { color:#BE185D }
+  /* 위아래 반반: 위 퍼플루(누르면 듣기) · 아래 대화 */
+  body.mode-stack #face { height:36vh !important; width:100vw !important; }
+  body.mode-stack #side { top:36vh !important; height:64vh !important; width:100vw !important; transform:none !important;
+    border-left:0 !important; border-top:1px solid var(--sideline) !important; border-radius:18px 18px 0 0; }
+  body.mode-stack #gear, body.mode-stack #splitbtn, body.mode-stack #chatbtn, body.mode-stack #hint, body.mode-stack #ring { display:none !important; }
+  /* 듣는 동안 머리줄 '퍼플루 듣는 중'에 내 그라데이션이 오른쪽으로 흘러가요 */
+  #side .head .ttl { color:var(--c) !important; }   /* '퍼플루' 제목 색은 그대로 */
+  body.listening #sidest {
+    background:var(--glowline) !important; background-size:300% 100% !important; -webkit-background-clip:text !important; background-clip:text !important;
+    color:transparent !important; animation:flowright 1.4s linear infinite !important; font-weight:700; }
+  @keyframes flowright { from { background-position:100% 0 } to { background-position:0% 0 } }
   /* 머리줄 상태 글자에 보라 빛이 흘러가요 */
   #sidest { background:linear-gradient(90deg, var(--dim) 0%, var(--dim) 35%, #C084FC 50%, var(--dim) 65%, var(--dim) 100%);
     background-size:300% 100%; -webkit-background-clip:text; background-clip:text; color:transparent !important; animation:shine 2.4s linear infinite; }
@@ -237,7 +248,7 @@
 <button id="gear" aria-label="설정" style="z-index:6">⚙</button>
 <button id="splitbtn" aria-label="화면 나누기" title="결과 화면 열기/닫기">◧</button>
 <div id="side">
-  <div class="head">퍼플루 <span class="st" id="sidest"></span><button id="sidegear" title="설정" style="margin-left:auto">⚙</button><button id="sidefull" title="대화방 크게/반반" style="margin-left:0">⤢</button><button id="sideclose" aria-label="닫기" style="margin-left:0">✕</button></div>
+  <div class="head"><span class="ttl">퍼플루</span> <span class="st" id="sidest"></span><button id="sidegear" title="설정" style="margin-left:auto">⚙</button><button id="sidefull" title="대화방 크게/반반" style="margin-left:0">⤢</button><button id="sideclose" aria-label="닫기" style="margin-left:0">✕</button></div>
   <div class="body" id="sidebody"></div>
   <div id="attachprev"><img id="attachimg"> <button class="btn" id="attachx" style="padding:6px 10px">✕</button></div>
   <div id="chatbar">
@@ -423,7 +434,7 @@ function step(now) {
 
 // ---------- 그리기 (원본 FaceView: 844×390 디자인, 아래에서 쏙 올라온 얼굴) ----------
 const cv = $("#face"), g = cv.getContext("2d");
-function resize() { const d = devicePixelRatio || 1; cv.width = (cv.clientWidth || innerWidth) * d; cv.height = innerHeight * d; }
+function resize() { const d = devicePixelRatio || 1; cv.width = (cv.clientWidth || innerWidth) * d; cv.height = (cv.clientHeight || innerHeight) * d; }
 addEventListener("resize", resize); resize();
 const DW = 844, DH = 390;
 function blobPath(b) {  // 위가 둥글고 아래가 넓은 말랑한 몸
@@ -580,7 +591,8 @@ function renderSide() {
   let h = "";
   if (chatHistory.length) {
     h += `<div class="when">이전 대화</div>`;
-    h += chatHistory.slice(-40).map(m => m.role === "user" ? `<div class="me">${esc(m.text)}</div>` : ai(esc(m.text))).join("");
+    h += chatHistory.slice(-40).map(m => m.role === "user" ? `<div class="me">${esc(m.text)}</div>`
+      : stepsHtml((m.steps || []).map(s => ({ ...s, done: true, label: s.call })), false) + (m.text && m.text !== "(실행만 했어요)" ? ai(esc(m.text)) : "")).join("");
   }
   h += pastTurns.map(t => turnHtml(t, false)).join("");
   h += turnHtml({ heard, reply, thought, steps, results, img: sentImg }, true);
@@ -653,8 +665,9 @@ function onColor(hex) {   // 색 배경 위 글자: 밝은 배경엔 진한 글�
 function applyColor() {
   const c = settings.color || "#8B5CF6", cc = settings.chat_color || c, root = document.documentElement.style;
   root.setProperty("--c-on", onColor(c)); root.setProperty("--cc", cc); root.setProperty("--cc-on", onColor(cc));
-  if (settings.chat_color) { root.setProperty("--me-bg", cc); root.setProperty("--me-on", onColor(cc)); }
-  else { root.removeProperty("--me-bg"); root.removeProperty("--me-on"); }
+  root.setProperty("--me-bg", cc); root.setProperty("--me-on", onColor(cc));   // 내 말풍선 = 내가 고른 색 (대화창 색, 없으면 퍼플루 색)
+  const gc = (GLOWS[settings.chat_glow || "rainbow"] || GLOWS.rainbow).colors || [c, "#ffffff", c];
+  root.setProperty("--glowline", `linear-gradient(90deg, ${[...gc, ...gc, gc[0]].join(", ")})`);
   document.querySelectorAll(".gbox").forEach(el => el.style.background = glowCss(settings.chat_glow || "rainbow"));
   document.documentElement.style.setProperty("--c", settings.color || "#8B5CF6");
   document.body.classList.toggle("light", settings.theme === "light");
@@ -792,9 +805,11 @@ cv.addEventListener("pointerdown", async e => {
   e.preventDefault(); cv.setPointerCapture?.(e.pointerId);
   pressing = true; pressAt = performance.now(); gazeAt(e); A.hop.velocity -= 120;
   // 누르는 순간부터 듣는다 (첫 말이 안 잘리게). 목소리가 없으면 PC가 Gemini에 아무것도 안 보낸다
-  talking = true; stopAudio(); send({ type: "talk_start" });
+  const pcWin = new URLSearchParams(location.search).get("view") === "chat";
+  talking = true; stopAudio(); send({ type: "talk_start", pc: pcWin });   // PC 대화창은 PC 마이크로
   clearTimeout(holdTimer);
   holdTimer = setTimeout(() => { if (pressing) { setState("listening"); navigator.vibrate?.(25); } }, 250);
+  if (pcWin) return;   // PC 마이크를 쓰니 이 화면의 마이크는 안 연다
   try { await ensureAudio(); } catch (err) { showCard("⚠ 마이크를 못 열었어요: " + esc(err.message)); release(); }
 });
 function release(e) {
@@ -859,7 +874,8 @@ function sugUpdate() {
     sugItems = skillRows.filter(r => r.enabled && r.name.toLowerCase().includes(q)).map(r => ({ label: r.name, sub: r.description || "스킬" }));
   } else if (at) {
     sugKind = "@"; const q = at[1].toLowerCase();
-    if (!mentionList.length && !sugUpdate.asked) { sugUpdate.asked = true; send({ type: "mentions" }); }
+    if (q === "" && !sugUpdate.asked) { sugUpdate.asked = true; send({ type: "mentions" }); }   // @를 새로 칠 때마다 지금 열린 것 새로 받기
+    if (q !== "") sugUpdate.asked = false;
     sugItems = mentionList.filter(m => m.label.toLowerCase().includes(q)).slice(0, 30).map(m => ({ label: m.label, sub: m.kind, m }));
   } else sugItems = [];
   const box = $("#suggest");
@@ -957,12 +973,12 @@ $("#sktry").onclick = () => {
 };
 $("#splitbtn").onclick = () => setSplit(!isSplit(), true);
 if (prefs.chatAlways || prefs.chatFull) setTimeout(() => { setSplit(true); }, 50);
-const MODES = ["float", "half", "full"], MODE_ICON = { float: "◳", half: "◧", full: "⤢" }, MODE_NAME = { float: "오른쪽 아래 창", half: "반반", full: "대화창만" };
+const MODES = ["float", "half", "full"], MODE_ICON = { float: "◳", half: "◧", full: "⤢", stack: "⬒" }, MODE_NAME = { float: "오른쪽 아래 창", half: "반반", full: "대화창만", stack: "위아래 반반" };
 if (!MODES.includes(prefs.chatMode)) prefs.chatMode = prefs.chatFull ? "full" : "float";
-if (new URLSearchParams(location.search).get("view") === "chat") prefs.chatMode = "full";   // PC 대화창
+if (new URLSearchParams(location.search).get("view") === "chat") prefs.chatMode = prefs.pcLayout === "full" ? "full" : "stack";   // PC 대화창: 위 퍼플루 · 아래 대화
 function setMode(m) {
   prefs.chatMode = m; savePrefs();
-  MODES.forEach(x => document.body.classList.toggle("mode-" + x, x === m));
+  [...MODES, "stack"].forEach(x => document.body.classList.toggle("mode-" + x, x === m));
   if (new URLSearchParams(location.search).get("view") !== "chat")   // PC 대화창에선 이 버튼이 📌 고정
   $("#sidefull").textContent = MODE_ICON[MODES[(MODES.indexOf(m) + 1) % 3]];
   $("#sidefull").title = "다음 모양: " + MODE_NAME[MODES[(MODES.indexOf(m) + 1) % 3]];
@@ -1081,7 +1097,12 @@ function fillSettings() {
       row("퍼플루 색", "", swatches, true),
       row("화면 테마", "", sel("theme", themes, "themesel")),
       row("💬 오른쪽 대화방 항상 보이기", "제미나이처럼 왼쪽 퍼플루, 오른쪽 대화 (이 기기만)", tog("chatAlways", true)),
+      row("🖥 PC: 대화창 모양", "위아래 반반 = 위에 퍼플루(누르고 말하기) · 아래 대화", `<select id="pclayout">
+        <option value="stack" ${prefs.pcLayout !== "full" ? "selected" : ""}>⬒ 위아래 반반</option>
+        <option value="full" ${prefs.pcLayout === "full" ? "selected" : ""}>⤢ 대화창만</option></select>`),
       row("📌 PC: 대화창 오른쪽에 고정", "안 사라지고 늘 보여요", tog("pc_chat_pinned")),
+      row("⬆ PC: 대화창 언제나 맨 위로", "", tog("pc_chat_on_top")),
+      row("↔ PC: 고정하면 자리 차지", "작업 표시줄처럼 대화창만큼 다른 창이 작아져요 (최대화해도 안 가려요)", tog("pc_chat_dock")),
       row("⏱ PC: 대화창 사라지기", "대답이 끝나고 이만큼 지나면 숨겨요", `<select data-k="pc_chat_autohide">${[[0, "안 사라짐"], [5, "5초 뒤"], [10, "10초 뒤"], [15, "15초 뒤"], [30, "30초 뒤"], [60, "1분 뒤"]].map(([v, t]) =>
         `<option value="${v}" ${+(settings.pc_chat_autohide ?? 15) === v ? "selected" : ""}>${t}</option>`).join("")}</select>`),
       row("💬 PC: 말풍선 대신 대화창", "PC에서 말하면 오른쪽 아래에 글로도 쓸 수 있는 대화창이 떠요", tog("pc_chat_window")),
@@ -1154,6 +1175,7 @@ function fillSettings() {
   $("#cpick").onchange = e => setColor(e.target.value);
   $("#setpage").querySelectorAll("[data-w]").forEach(b => b.onclick = e => { e.preventDefault(); save({ work_indicator_color: b.dataset.w }); fillSettings(); });
   $("#chatmode").onchange = e => { setMode(e.target.value); flash(); };
+  $("#pclayout").onchange = e => { prefs.pcLayout = e.target.value; savePrefs(); if (new URLSearchParams(location.search).get("view") === "chat") setMode(e.target.value); flash(); };
   $("#setpage").querySelectorAll("[data-g]").forEach(b => b.onclick = e => { e.preventDefault(); save({ chat_glow: b.dataset.g }); applyColor(); fillSettings(); });
   $("#setpage").querySelectorAll("[data-cc]").forEach(b => b.onclick = e => { e.preventDefault(); save({ chat_color: b.dataset.cc }); applyColor(); fillSettings(); });
   $("#ccpick").onchange = e => { save({ chat_color: e.target.value }); applyColor(); fillSettings(); };

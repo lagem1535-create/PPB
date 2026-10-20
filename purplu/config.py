@@ -59,7 +59,9 @@ DEFAULTS = {
     "security_level": "strict",                       # strict 강하게 / normal 보통 / relaxed 약하게
     "theme": "dark",
     "pc_chat_window": True,
-    "pc_chat_pinned": False,                          # PC 대화창을 오른쪽에 고정 (안 사라짐)
+    "pc_chat_pinned": False,
+    "pc_chat_on_top": True,                           # PC 대화창을 언제나 맨 위로
+    "pc_chat_dock": True,                             # 고정하면 대화창 크기만큼 자리를 차지 → 다른 창이 그만큼 작아짐 (작업 표시줄처럼)                          # PC 대화창을 오른쪽에 고정 (안 사라짐)
     "pc_chat_autohide": 15,                           # 대답이 끝나고 몇 초 뒤 대화창 숨기기 (0 = 안 숨김)                           # PC: 말풍선 대신 타이핑할 수 있는 대화창을 오른쪽 아래에
     "chat_glow": "rainbow",                            # 입력칸 빛 색 조합: rainbow(다채로운) / blue_purple / pink_purple / sunset / ocean / mono
     "chat_color": "",                                 # 대화창 색 (내 말풍선·보내기 버튼). 비우면 퍼플루 색

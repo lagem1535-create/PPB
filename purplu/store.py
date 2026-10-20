@@ -102,9 +102,12 @@ def messages(cid: str) -> list[dict]:
     return [data[k] for k in sorted(data)]  # push id는 시간순으로 정렬됨
 
 
-def add_message(cid: str, role: str, text: str):
+def add_message(cid: str, role: str, text: str, steps: list | None = None):
     t = now_ms()
-    post(f"messages/{cid}", {"role": role, "text": text, "t": t})
+    row = {"role": role, "text": text, "t": t}
+    if steps:
+        row["steps"] = steps[:20]  # 실행한 명령 (대화창에서 다시 볼 수 있게)
+    post(f"messages/{cid}", row)
     patch(f"conversations/{cid}", {"updated": t})
 
 

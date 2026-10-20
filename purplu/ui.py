@@ -575,7 +575,9 @@ class App:
             if "pc_chat_pinned" in data:
                 if data["pc_chat_pinned"]:
                     self.open_chat(activate=False)
-                    self.chat_window.apply_pin()
+                self.chat_window.apply_pin() if getattr(self, "chat_window", None) else None
+            if {"pc_chat_on_top", "pc_chat_dock"} & set(data) and getattr(self, "chat_window", None):
+                self.chat_window.apply_settings()
             if "theme" in data:
                 self.bubble.render()
                 self.bubble.update()

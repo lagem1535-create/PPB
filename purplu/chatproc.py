@@ -37,8 +37,14 @@ class ChatProcess:
                 l, t, w, h, vis = map(int, parts[1:])
                 self._geom = QRect(l, t, w, h) if vis else None
         self._geom = None
-        if p.returncode not in (0, None):
-            print(f"PC 대화창이 꺼졌어요 (코드 {p.returncode}) — 퍼플루는 그대로, 다음에 부르면 다시 켜요")
+        code = p.wait()
+        if code not in (0, None) and p is self._p:
+            print(f"PC 대화창이 꺼졌어요 (코드 {code}) — 퍼플루는 그대로, 대화창만 다시 켜요")
+            import time
+            time.sleep(1)
+            if config.settings().get("pc_chat_pinned"):   # 고정해 둔 대화창이면 바로 다시
+                self._send("show_quiet")
+                self._send("pin")
 
     def _send(self, cmd: str):
         self._ensure()
@@ -57,6 +63,10 @@ class ChatProcess:
 
     def apply_pin(self):
         self._send("pin")
+
+    def apply_settings(self):
+        if self._alive():
+            self._send("settings")
 
     def auto_hide(self):
         if self._alive():
