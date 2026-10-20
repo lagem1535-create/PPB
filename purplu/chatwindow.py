@@ -56,8 +56,27 @@ class ChatWindow(QWidget):
         self.view.urlChanged.connect(self._url_changed)
 
     def _url_changed(self, url: QUrl):
-        if url.fragment().startswith("close"):  # 대화창의 ✕
+        frag = url.fragment()
+        if frag.startswith("close"):  # 대화창의 ✕
+            config.save_settings(pc_chat_pinned=False)
             self.hide()
+        elif frag.startswith("pin"):  # 📌 고정 켜기/끄기
+            config.save_settings(pc_chat_pinned=not config.settings().get("pc_chat_pinned", False))
+
+    def apply_pin(self):
+        """고정이면 화면 오른쪽에 붙여 늘 보이게."""
+        if config.settings().get("pc_chat_pinned"):
+            area = QGuiApplication.primaryScreen().availableGeometry()
+            self.resize(440, area.height() - 60)
+            self.move(area.right() - self.width() - 8, area.top() + 20)
+            self._placed = True
+            self.open(activate=False)
+
+    def auto_hide(self):
+        """설정한 초가 지나면 숨기기 (고정이거나, 사용자가 대화창에서 쓰는 중이면 안 숨김)."""
+        if config.settings().get("pc_chat_pinned") or self.isActiveWindow():
+            return
+        self.hide()
 
     def _place(self):
         """처음엔 화면 오른쪽 아래(작업 표시줄 위)에."""

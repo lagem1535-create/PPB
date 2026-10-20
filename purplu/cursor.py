@@ -21,7 +21,7 @@ GWL_EXSTYLE, WS_EX_TRANSPARENT, WS_EX_LAYERED, WS_EX_NOACTIVATE = -20, 0x20, 0x8
 user32 = ctypes.windll.user32
 
 STATE_COLORS = {
-    "sleep": "#7C6AA8", "idle": "#8B5CF6", "listening": "#22C55E",
+    "sleep": "#7C6AA8", "idle": "#8B5CF6", "listening": "#A855F7",
     "thinking": "#F59E0B", "acting": "#3B82F6", "speaking": "#EC4899",
 }
 HOLD_TO_TALK_MS = 250
@@ -288,9 +288,9 @@ class PurpluCursor(QWidget):
         r = s * 0.37 * (1 + breathe)
 
         # 은은한 빛: 평소엔 퍼플루 색, 일할 땐 상태 색
-        halo = QColor(color if self.state in ("sleep", "idle", "speaking") else ring)
+        halo = QColor(color if self.state in ("sleep", "idle", "speaking", "listening") else ring)
         g = QRadialGradient(c, r * 2.1)
-        halo.setAlpha(120 if self.mode == "fly" or self.state in ("acting", "listening") else 70)
+        halo.setAlpha(0 if self.state == "listening" else 120 if self.mode == "fly" or self.state == "acting" else 70)  # 들을 땐 대화창이 빛난다
         g.setColorAt(0, halo)
         g.setColorAt(0.55, QColor(halo.red(), halo.green(), halo.blue(), halo.alpha() // 3))
         g.setColorAt(1, QColor(0, 0, 0, 0))

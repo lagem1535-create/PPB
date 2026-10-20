@@ -483,6 +483,7 @@ class SettingsWindow(QWidget):
                            ("cursor_always", "커서 항상 보이기 (끄면 필요할 때만)"),
                            ("cursor_follow", "내 마우스 따라다니기"),
                            ("pc_chat_window", "💬 말풍선 대신 대화창 (오른쪽 아래, 글로도 입력)"),
+                           ("pc_chat_pinned", "📌 PC 대화창을 오른쪽에 고정 (안 사라짐)"),
                            ("work_indicator", "💜 작업 중 표시 (퍼플루가 쓰는 앱·브라우저 둘레가 빛나요)"),
                            ("browser_real_input", "🌐 브라우저: 진짜 마우스·키보드로 조작 (확장, 위에 디버깅 알림이 떠요)"),
                            ("browser_highlights", "🖍 브라우저: 사이트 하이라이트·노트 (새로고침해도 유지)")):
@@ -504,6 +505,12 @@ class SettingsWindow(QWidget):
         self.pages_edit.editingFinished.connect(
             lambda: config.save_settings(pages_url=self.pages_edit.text().strip()))
         form.addRow("🌐 웹 주소", self.pages_edit)
+        self.hide_box = QComboBox()
+        for secs, text in ((0, "안 사라짐"), (5, "5초 뒤"), (10, "10초 뒤"), (15, "15초 뒤"), (30, "30초 뒤"), (60, "1분 뒤")):
+            self.hide_box.addItem(text, secs)
+        self.hide_box.setCurrentIndex(max(0, self.hide_box.findData(int(config.settings().get("pc_chat_autohide", 15)))))
+        self.hide_box.activated.connect(lambda _=None: config.save_settings(pc_chat_autohide=self.hide_box.currentData()))
+        form.addRow("💬 대화창 사라지기", self.hide_box)
         self.py_mode = QComboBox()
         for key, text in config.PYTHON_APPROVAL.items():
             self.py_mode.addItem(text, key)

@@ -16,7 +16,7 @@
   #ring { position:fixed; inset:0; pointer-events:none; box-shadow:inset 0 0 0 var(--ringw, 0px) var(--ring), inset 0 0 60px var(--ring);
     transition:box-shadow .35s; }
   #dot { position:fixed; top:14px; left:16px; width:9px; height:9px; border-radius:50%; background:#EF4444; opacity:.6; }
-  #dot.on { background:#22C55E; }
+  #dot.on { display:none; }
   #gear { position:fixed; top:6px; right:8px; width:44px; height:44px; border-radius:50%; border:0; background:transparent;
     color:#ffffff40; font-size:22px; }
   #caption { position:fixed; top:22px; left:50%; transform:translateX(-50%); max-width:min(86vw,760px); display:none;
@@ -131,6 +131,22 @@
   body.light #side .head button { color:#52525B; } body.light .dots span { background:#7C3AED !important; }
   body.light #dot { box-shadow:0 0 0 2px #fff; }
   body.light #msglist .u b { color:#6D28D9 } body.light #msglist .m b { color:#BE185D }
+  /* 머리줄 상태 글자에 보라 빛이 흘러가요 */
+  #sidest { background:linear-gradient(90deg, var(--dim) 0%, var(--dim) 35%, #C084FC 50%, var(--dim) 65%, var(--dim) 100%);
+    background-size:300% 100%; -webkit-background-clip:text; background-clip:text; color:transparent !important; animation:shine 2.4s linear infinite; }
+  body.busy #sidest { background:linear-gradient(90deg, #7C3AED, #C084FC, #F0ABFC, #C084FC, #7C3AED); background-size:300% 100%;
+    -webkit-background-clip:text; background-clip:text; animation-duration:1.2s; font-weight:600; }
+  @keyframes shine { from { background-position:100% 0 } to { background-position:-200% 0 } }
+  /* 듣는 동안엔 대화창이 보라색으로 빛나요 (커서 대신) */
+  body.listening #side { box-shadow:0 0 0 2px #A855F7, 0 0 36px 4px #A855F799 !important; }
+  body.listening .gbox { background:conic-gradient(from var(--ga), #7C3AED, #C084FC, #A855F7, #E879F9, #7C3AED) !important; animation-duration:1s; }
+  /* @멘션·/스킬 고르기 */
+  #suggest { display:none; position:absolute; left:14px; right:14px; bottom:100%; margin-bottom:6px; max-height:260px; overflow:auto;
+    background:var(--sidebg); border:1px solid var(--sideline); border-radius:14px; box-shadow:0 10px 30px #0006; z-index:3; }
+  #suggest div { padding:9px 14px; cursor:pointer; color:var(--aitext); font-size:14px; }
+  #suggest div small { color:var(--dim); margin-left:6px; }
+  #suggest div.sel, #suggest div:hover { background:var(--bubble); }
+  #chatbar { position:relative; }
   #chatbtn { position:fixed; top:6px; right:96px; width:44px; height:44px; border-radius:50%; border:0; background:transparent;
     color:#ffffff55; font-size:20px; z-index:6; transition:right .35s ease; }
   body.split.mode-half #chatbtn { right:calc(50vw + 96px); } body.light #chatbtn { color:#00000040; }
@@ -224,7 +240,7 @@
   <div id="attachprev"><img id="attachimg"> <button class="btn" id="attachx" style="padding:6px 10px">✕</button></div>
   <div id="chatbar">
     <div class="gbox"><div class="inner">
-      <textarea id="cin" rows="1" placeholder="퍼플루에게 물어보기"></textarea>
+      <textarea id="cin" rows="1" placeholder="퍼플루에게 물어보기  ( / 스킬 · @ 멘션 )"></textarea>
       <div class="tools">
         <button id="cimg" title="그림 첨부">📎</button>
         <select id="cmodel" title="대화 모델"></select>
@@ -233,6 +249,7 @@
         <button id="csend" title="보내기">➤</button>
       </div>
     </div></div>
+    <div id="suggest"></div>
     <input type="file" id="cfile" accept="image/*" style="display:none">
   </div>
 </div>
@@ -330,7 +347,7 @@ const qpc = new URLSearchParams(location.search).get("pc");
 if (REMOTE && qpc) { try { localStorage.setItem("purplu_pc", qpc); } catch {} history.replaceState(null, "", location.pathname); }
 let PC = REMOTE ? (qpc || (() => { try { return localStorage.getItem("purplu_pc"); } catch { return null; } })()) : location.host;
 const pcUrl = path => REMOTE ? `https://${PC}${path}` : path;   // 그림 등 PC 파일 주소
-const RING = { listening:"#22C55E", thinking:"#F59E0B", acting:"#3B82F6", speaking:"#FF9AD0" };
+const RING = { listening:"#A855F7", thinking:"#F59E0B", acting:"#3B82F6", speaking:"#FF9AD0" };
 let state = "sleep", level = 0, talking = false, pressing = false, ws = null, settings = {};
 let mouse = null, mouseAt = -1e9, touchGaze = null;
 const prefs = (() => { try { return JSON.parse(localStorage.getItem("purplu-tab") || "{}"); } catch { return {}; } })();
@@ -530,7 +547,7 @@ function autoSplit(kind) {
   if (closedThisTurn) return;
   if ((kind === "thinking" && prefs.splitThinking) || (kind === "result" && prefs.splitResult)) setSplit(true);
 }
-const STATUS_TXT = { sleep:"자는 중", idle:"", listening:"듣는 중…", thinking:"생각 중…", acting:"하는 중…", speaking:"말하는 중" };
+const STATUS_TXT = { sleep:"듣는 중", idle:"듣는 중", listening:"듣는 중…", thinking:"생각 중…", acting:"하는 중…", speaking:"말하는 중" };
 function stepsHtml(list, open) {
   if (!list.length) return "";
   const showCall = settings.show_steps !== false, showCmd = settings.show_commands !== false;
@@ -590,7 +607,8 @@ function setState(s) {
     if (heard || reply) pastTurns.push({ heard, reply, thought, steps, results, img: sentImg });   // 앞 대화는 위로 쌓기
     heard = reply = thought = ""; steps = []; results = []; closedThisTurn = false; if (!chatPending) sentImg = ""; chatPending = false;
   }
-  document.body.classList.toggle("busy", ["listening", "thinking", "acting"].includes(s));
+  document.body.classList.toggle("busy", ["listening", "thinking", "acting", "speaking"].includes(s));
+  document.body.classList.toggle("listening", s === "listening");
   if (s === "thinking" || s === "acting") autoSplit("thinking");
   document.documentElement.style.setProperty("--ring", RING[s] ? RING[s] + "aa" : "transparent");
   document.documentElement.style.setProperty("--ringw", RING[s] ? (s === "listening" ? "6px" : "4px") : "0px");
@@ -657,7 +675,8 @@ function connect() {
     switch (type) {
       case "hello": settings = data.settings; voices = data.voices || {}; pyModes = data.python_approval || {};
         pyWarn = data.python_warning || {}; secLevels = data.security_levels || {}; secWarn = data.security_warning || {};
-        themes = data.themes || {}; secPython = data.security_python || {}; models = data.models || models; applyColor(); fillModels(); break;
+        themes = data.themes || {}; secPython = data.security_python || {}; models = data.models || models; applyColor(); fillModels();
+        setState(data.state || "idle"); send({ type: "list_skills" }); break;
       case "mouse": mouse = data; mouseAt = performance.now() / 1000; break;
       case "state": setState(data); if (data === "listening") chirped = false; break;
       case "heard": heard += data; caption(); break;
@@ -675,6 +694,7 @@ function connect() {
         addResult(data.length ? data.slice(0, 8).map(f => `📄 ${esc(f.path.split("\\").pop())} <small style="color:#A1A1AA">${esc(f.modified || "")}</small>`).join("<br>") : "찾은 파일이 없어요"); break;
       case "image": addResult(`🎨 ${esc(data.caption || "")}<a href="${pcUrl(data.url)}" target="_blank"><img src="${pcUrl(data.url)}"></a>`); break;
       case "skills": showSkills(data); break;
+      case "mentions": mentionList = data || []; sugUpdate(); break;
       case "skill": fillSkill(data); break;
       case "hint": showCard(`🙉 ${esc(data)}`, 3500); A.hop.velocity += 200; break;
       case "python_ask":
@@ -820,11 +840,50 @@ function sendChat() {
   const text = $("#cin").value.trim();
   if (!text && !attach) return;
   chatPending = true; sentImg = attach ? attach.url : "";
-  send({ type: "chat", text, image: attach && attach.b64, mime: attach && attach.mime });
+  send({ type: "chat", text, image: attach && attach.b64, mime: attach && attach.mime, mentions: chosenMentions });
+  chosenMentions = []; mentionList = []; sugUpdate.asked = false;   // 다음 @ 땐 새 목록
   $("#cin").value = ""; $("#cin").style.height = ""; attach = null; $("#attachprev").style.display = "none";
   ensureAudio().catch(() => {});   // 대답 목소리를 들을 수 있게
 }
 $("#csend").onclick = sendChat;
+
+// ---------- @멘션 · /스킬 ----------
+let mentionList = [], chosenMentions = [], sugItems = [], sugSel = 0, sugKind = "";
+function sugUpdate() {
+  const ta = $("#cin"), before = ta.value.slice(0, ta.selectionStart);
+  const slash = before.match(/^\/([^\s]*)$/), at = before.match(/(?:^|\s)@([^\s@]*)$/);
+  if (slash) {
+    sugKind = "/"; const q = slash[1].toLowerCase();
+    sugItems = skillRows.filter(r => r.enabled && r.name.toLowerCase().includes(q)).map(r => ({ label: r.name, sub: r.description || "스킬" }));
+  } else if (at) {
+    sugKind = "@"; const q = at[1].toLowerCase();
+    if (!mentionList.length && !sugUpdate.asked) { sugUpdate.asked = true; send({ type: "mentions" }); }
+    sugItems = mentionList.filter(m => m.label.toLowerCase().includes(q)).slice(0, 30).map(m => ({ label: m.label, sub: m.kind, m }));
+  } else sugItems = [];
+  const box = $("#suggest");
+  if (!sugItems.length) { box.style.display = "none"; return; }
+  sugSel = Math.min(sugSel, sugItems.length - 1);
+  box.innerHTML = sugItems.map((it, i) => `<div class="${i === sugSel ? "sel" : ""}" data-i="${i}">${sugKind === "/" ? "🧩 /" : "@"}${esc(it.label)}<small>${esc(it.sub)}</small></div>`).join("");
+  box.style.display = "block";
+  box.querySelectorAll("[data-i]").forEach(el => el.onmousedown = e => { e.preventDefault(); sugPick(+el.dataset.i); });
+}
+function sugPick(i) {
+  const it = sugItems[i]; if (!it) return;
+  const ta = $("#cin"), pos = ta.selectionStart, before = ta.value.slice(0, pos), after = ta.value.slice(pos);
+  const newBefore = sugKind === "/" ? `/${it.label} ` : before.replace(/@([^\s@]*)$/, `@${it.label} `);
+  ta.value = newBefore + after; ta.selectionStart = ta.selectionEnd = newBefore.length;
+  if (it.m) chosenMentions.push(it.m);
+  $("#suggest").style.display = "none"; sugItems = []; ta.focus();
+}
+$("#cin").addEventListener("input", () => { sugSel = 0; sugUpdate(); });
+$("#cin").addEventListener("keydown", e => {
+  if (!sugItems.length) return;
+  if (e.key === "ArrowDown") { sugSel = (sugSel + 1) % sugItems.length; sugUpdate(); e.preventDefault(); e.stopImmediatePropagation(); }
+  else if (e.key === "ArrowUp") { sugSel = (sugSel - 1 + sugItems.length) % sugItems.length; sugUpdate(); e.preventDefault(); e.stopImmediatePropagation(); }
+  else if (e.key === "Enter" || e.key === "Tab") { sugPick(sugSel); e.preventDefault(); e.stopImmediatePropagation(); }
+  else if (e.key === "Escape") { $("#suggest").style.display = "none"; sugItems = []; }
+}, true);
+$("#cin").addEventListener("blur", () => setTimeout(() => { $("#suggest").style.display = "none"; }, 150));
 $("#cmic").addEventListener("pointerdown", async e => {
   e.preventDefault(); $("#cmic").setPointerCapture?.(e.pointerId); $("#cmic").classList.add("on");
   try { await ensureAudio(); } catch (err) { showCard("⚠ 마이크를 못 열었어요: " + esc(err.message)); return; }
@@ -916,7 +975,10 @@ $("#sideclose").onclick = () => {
   if (PC_WINDOW) { location.hash = "close-" + Date.now(); return; }   // PC 대화창: 퍼플루 앱이 창을 숨긴다
   if (prefs.chatMode === "full") setMode("float"); setSplit(false, true);
 };
-if (PC_WINDOW) { $("#sidefull").style.display = "none"; }
+if (PC_WINDOW) {
+  $("#sidefull").textContent = "📌"; $("#sidefull").title = "오른쪽에 고정 / 풀기";
+  $("#sidefull").onclick = () => { location.hash = "pin-" + Date.now(); };
+}
 setTimeout(() => { $("#hint").style.opacity = 0; }, 8000);
 
 // ---------- 설정 패널 ----------
@@ -1015,6 +1077,9 @@ function fillSettings() {
       row("퍼플루 색", "", swatches, true),
       row("화면 테마", "", sel("theme", themes, "themesel")),
       row("💬 오른쪽 대화방 항상 보이기", "제미나이처럼 왼쪽 퍼플루, 오른쪽 대화 (이 기기만)", tog("chatAlways", true)),
+      row("📌 PC: 대화창 오른쪽에 고정", "안 사라지고 늘 보여요", tog("pc_chat_pinned")),
+      row("⏱ PC: 대화창 사라지기", "대답이 끝나고 이만큼 지나면 숨겨요", `<select data-k="pc_chat_autohide">${[[0, "안 사라짐"], [5, "5초 뒤"], [10, "10초 뒤"], [15, "15초 뒤"], [30, "30초 뒤"], [60, "1분 뒤"]].map(([v, t]) =>
+        `<option value="${v}" ${+(settings.pc_chat_autohide ?? 15) === v ? "selected" : ""}>${t}</option>`).join("")}</select>`),
       row("💬 PC: 말풍선 대신 대화창", "PC에서 말하면 오른쪽 아래에 글로도 쓸 수 있는 대화창이 떠요", tog("pc_chat_window")),
       row("💬 대화창 모양", "대화창 머리줄 버튼으로도 바꿔요 (이 기기만)", `<select id="chatmode">${MODES.map(m =>
         `<option value="${m}" ${prefs.chatMode === m ? "selected" : ""}>${MODE_ICON[m]} ${MODE_NAME[m]}</option>`).join("")}</select>`),

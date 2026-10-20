@@ -103,7 +103,13 @@ HISTORY_LIMIT = 30
 
 class Brain:
     def __init__(self, emit):
-        self.emit = emit
+        self.last_state = "idle"
+
+        def _emit(kind, data):  # 지금 상태를 기억해 두고 (새로 연 화면이 바로 알 수 있게)
+            if kind == "state":
+                self.last_state = data
+            emit(kind, data)
+        self.emit = _emit
         self.loop = asyncio.new_event_loop()
         self._session = None
         self._mic = None
@@ -194,7 +200,7 @@ class Brain:
         if self._reconnect_pending or self._stop or not self._keep_alive:
             return
         self._reconnect_pending = True
-        delay = min(30.0, 1.0 * (2 ** self._fail_count))
+        delay = min(8.0, 0.5 * (2 ** self._fail_count))  # 인터넷이 돌아오면 금방 다시 붙게 (최대 8초)
 
         async def again():
             await asyncio.sleep(delay)
@@ -402,7 +408,7 @@ class Brain:
                     print(f"Gemini 연결 실패 ({model}, 생각={thinking}, 요약={thoughts}): {e}")
                 if connected.done():  # 연결된 뒤에 끊김 → 다음에 말할 때 다시 연결
                     last_error = e
-                    if "Precondition" in str(e) or "expired" in str(e):
+                    if any(k in str(e) for k in ("Precondition", "expired", "not found")):
                         self._resume_handle = None
                     break
                 if self._resume_handle:  # 이어하기 표가 만료됐을 수 있다 → 버리고 같은 설정으로 다시
@@ -586,7 +592,9 @@ class Brain:
                 if msg.session_resumption_update and msg.session_resumption_update.resumable:
                     self._resume_handle = msg.session_resumption_update.new_handle
                 if msg.go_away:
-                    return  # 곧 끊긴다 → 다음에 말할 때 이어서 다시 연결
+                    self._going_away = True   # 곧 끊긴다 → 지금 대답은 마저 받고, 끝나면 바로 새로 연결
+                    if not (self._turn_user or self._turn_model or self._talking):
+                        return
                 if msg.tool_call:
                     await self._handle_tools(session, msg.tool_call.function_calls or [])
                 sc = msg.server_content
@@ -612,6 +620,9 @@ class Brain:
                     self._flush_turn()
                     if not self._speaker.playing and not self._talking:
                         self.emit("state", "idle")
+                    if getattr(self, "_going_away", False):
+                        self._going_away = False
+                        return
 
     async def _handle_tools(self, session, calls):
         self.emit("state", "acting")

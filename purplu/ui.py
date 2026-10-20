@@ -328,6 +328,7 @@ class App:
 
         self.bubble = Bubble()
         self.bubble.redirect = lambda: self.open_chat(activate=False)  # 설정에 따라 말풍선 대신 대화창
+        self._chat_hide = QTimer(singleShot=True, timeout=lambda: getattr(self, "chat_window", None) and self.chat_window.auto_hide())
         cw = lambda: self.chat_window.frameGeometry() if getattr(self, "chat_window", None) and self.chat_window.isVisible() else None  # noqa: E731
         self.cursor.dock = cw
         self.bubble.anchor = self.cursor
@@ -441,6 +442,12 @@ class App:
             b.pop(10000 if data in ("idle", "sleep") else None)
             if data != "acting":
                 self.workframe.stop()
+            # 대답이 끝나면 몇 초 뒤 대화창 숨기기 (설정)
+            secs = int(config.settings().get("pc_chat_autohide", 15) or 0)
+            if data in ("idle", "sleep") and secs > 0 and getattr(self, "chat_window", None):
+                self._chat_hide.start(secs * 1000)
+            else:
+                self._chat_hide.stop()
         elif kind == "heard":
             b.heard += data
             b.render()
@@ -565,6 +572,10 @@ class App:
                 self.settings_window.sync_fields(data)
             if "current_conversation" in data and self.settings_window.isVisible():
                 self.settings_window.refresh_conversations()
+            if "pc_chat_pinned" in data:
+                if data["pc_chat_pinned"]:
+                    self.open_chat(activate=False)
+                    self.chat_window.apply_pin()
             if "theme" in data:
                 self.bubble.render()
                 self.bubble.update()

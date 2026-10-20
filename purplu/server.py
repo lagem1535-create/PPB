@@ -130,6 +130,60 @@ def _local_networks() -> list:
     return nets
 
 
+def _mention_list() -> list[dict]:
+    """@로 부를 수 있는 것: 열린 창, 브라우저 탭, 메모."""
+    out = []
+    try:
+        from .tools.windows import _windows
+        for _, title in _windows()[:20]:
+            if "퍼플루" not in title:
+                out.append({"label": title[:40], "kind": "창", "id": title})
+    except Exception:
+        pass
+    try:
+        from . import browser
+        if browser.connected():
+            for t in browser.call("tabs", timeout=4)[:20]:
+                out.append({"label": (t.get("title") or t.get("url") or "")[:40], "kind": "탭", "id": t["tab_id"],
+                            "url": t.get("url", "")})
+    except Exception:
+        pass
+    try:
+        for mm in store.list_memos()[:10]:
+            out.append({"label": (mm.get("text") or "")[:30], "kind": "메모", "id": mm["id"]})
+    except Exception:
+        pass
+    return out
+
+
+def _expand_chat(text: str, mentions: list) -> str:
+    """'/스킬이름 …' → 그 스킬을 쓰라는 지시, '@멘션' → 무엇을 가리키는지 덧붙인다."""
+    text = (text or "").strip()
+    if text.startswith("/"):
+        name, _, rest = text[1:].partition(" ")
+        try:  # 띄어쓰기가 있는 스킬 이름도 (예: /아침 브리핑) — 가장 길게 맞는 이름
+            from .tools.skills import list_skills
+            names = sorted((r["name"] for r in list_skills()["skills"]), key=len, reverse=True)
+            hit = next((n for n in names if text[1:].startswith(n)), None)
+            if hit:
+                name, rest = hit, text[1 + len(hit):].strip()
+        except Exception:
+            pass
+        text = f"[/{name} 스킬] {rest}\n(지시: use_skill('{name}')로 설명서를 먼저 읽고 그대로 해.)"
+    notes = []
+    for m in mentions:
+        label = m.get("label", "")
+        if f"@{label}" not in text:
+            continue
+        if m.get("kind") == "탭":
+            notes.append(f"@{label} = 브라우저 탭 (tab_id {m.get('id')}, {m.get('url', '')}) → browser_switch_tab 후 browser_read")
+        elif m.get("kind") == "창":
+            notes.append(f"@{label} = PC에 열린 창 '{m.get('id')}' → windows_action focus_window 후 look_at_screen")
+        elif m.get("kind") == "메모":
+            notes.append(f"@{label} = 메모 (id {m.get('id')})")
+    return text + ("\n[멘션] " + " / ".join(notes) if notes else "")
+
+
 class TabletServer:
     def __init__(self, brain):
         self.brain = brain
@@ -350,6 +404,7 @@ class TabletServer:
                                                                  "security_warning": config.SECURITY_WARNING,
                                                                  "security_python": config.SECURITY_PYTHON,
                                                                  "themes": config.THEMES,
+                                                                 "state": getattr(self.brain, "last_state", "idle"),
                                                                  "models": {"gemini-3.8-live": "⚡ 빠른 모델",
                                                                             "gemini-3.8-live-extended-thinking": "🧠 생각하는 모델"}}},
                                      ensure_ascii=False))
@@ -407,7 +462,10 @@ class TabletServer:
         elif t == "chat":
             import base64
             img = base64.b64decode(m["image"]) if m.get("image") else None
-            self.brain.send_text(m.get("text", ""), img, m.get("mime") or "image/jpeg")
+            text = await asyncio.to_thread(_expand_chat, m.get("text", ""), m.get("mentions") or [])
+            self.brain.send_text(text, img, m.get("mime") or "image/jpeg")
+        elif t == "mentions":
+            await self._reply(ws, "mentions", await asyncio.to_thread(_mention_list))
         elif t == "list_skills":
             from .tools import skills
             await self._reply(ws, "skills", (await asyncio.to_thread(skills.list_skills))["skills"])
