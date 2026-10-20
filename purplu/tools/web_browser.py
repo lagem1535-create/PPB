@@ -89,5 +89,16 @@ def browser_highlight(text: str, note: str = "", color: str = "purple") -> dict:
     return _call("highlight", {"text": text, "note": note, "color": color})
 
 
+def browser_bookmarks(query: str = "") -> dict:
+    r = _call("bookmarks", {"query": query})
+    if r.get("ok") and not r.get("bookmarks"):
+        r["note"] = "즐겨찾기에서 못 찾았어. browser_history로 방문 기록도 찾아봐."
+    return r
+
+
+def browser_history(query: str = "") -> dict:
+    return _call("history", {"query": query})
+
+
 def browser_notes(all_sites: bool = False) -> dict:
     return _call("notes", {"all": bool(all_sites)})

@@ -393,8 +393,8 @@ class App:
     def open_chat(self, activate: bool = True):
         """PC 대화창 (탭·웹과 같은 대화창, 같은 대화)."""
         if not getattr(self, "chat_window", None):
-            from .chatwindow import ChatWindow
-            self.chat_window = ChatWindow(blob_icon(None, False))
+            from .chatproc import ChatProcess   # 대화창은 따로 도는 프로그램 (죽어도 퍼플루는 안 꺼짐)
+            self.chat_window = ChatProcess()
         self.chat_window.open(activate)
 
     def open_settings(self):
@@ -591,6 +591,12 @@ class App:
         self.bubble.pop(6000)
 
     def quit(self):
+        try:  # 사용자가 끈 것 → 지킴이가 다시 켜지 않게
+            (config.DATA_DIR / "quit.flag").write_text("quit", encoding="utf-8")
+        except OSError:
+            pass
+        if getattr(self, "chat_window", None):
+            self.chat_window.close()
         self.brain.shutdown()
         self.tray.hide()
         self.cursor.hide()

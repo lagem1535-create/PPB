@@ -126,6 +126,9 @@ BROWSER_DECLARATIONS = [
         "이 사이트에 저장돼서 새로고침해도 남는다. text에는 페이지 글을 그대로.",
         {"text": (S, "칠할 글자 (페이지에 있는 그대로)"), "note": (S, "붙일 노트 (선택)"),
          "color": (S, "yellow / green / pink / purple (기본 purple)")}, ["text"]),
+    _fn("browser_bookmarks", "브라우저 즐겨찾기(북마크)에서 찾는다. '즐겨찾기에 있는 ~ 열어 줘' 하면 이걸로 찾고 browser_open으로 연다. "
+        "이름이 정확하지 않아도 단어 일부로 찾는다.", {"query": (S, "찾을 이름·주소 일부 (비우면 전체)")}),
+    _fn("browser_history", "브라우저 방문 기록에서 찾는다 (최근 90일). '전에 갔던 ~' 할 때.", {"query": (S, "찾을 말")}),
     _fn("browser_notes", "하이라이트·노트 목록을 본다. 기본은 지금 페이지, all_sites=true면 모든 사이트.",
         {"all_sites": (B, "모든 사이트")}),
 ]
@@ -181,6 +184,7 @@ _RUNNERS = {
     "browser_type": wb.browser_type, "browser_scroll": wb.browser_scroll, "browser_nav": wb.browser_nav,
     "browser_highlight": wb.browser_highlight, "browser_keys": wb.browser_keys,
     "browser_screenshot": wb.browser_screenshot, "browser_notes": wb.browser_notes,
+    "browser_bookmarks": wb.browser_bookmarks, "browser_history": wb.browser_history,
     "set_reminder": set_reminder, "list_reminders": list_reminders, "cancel_reminder": cancel_reminder,
     "media_control": media_control, "read_clipboard": read_clipboard, "write_clipboard": write_clipboard,
     "search_web": search_web, "system_status": system_status, "windows_action": windows_action, "use_skill": use_skill, "list_skills": list_skills,
@@ -218,6 +222,8 @@ LABELS = {
     "browser_keys": lambda a: f"브라우저 키보드: {a.get('keys', '')}",
     "browser_screenshot": lambda a: "브라우저 화면 보는 중…",
     "browser_notes": lambda a: "하이라이트·노트 보는 중…",
+    "browser_bookmarks": lambda a: f"즐겨찾기에서 '{a.get('query', '')}' 찾는 중…",
+    "browser_history": lambda a: f"방문 기록에서 '{a.get('query', '')}' 찾는 중…",
     "browser_scroll": lambda a: "브라우저 스크롤하는 중…",
     "browser_nav": lambda a: f"브라우저 {a.get('action', '')}…",
     "browser_highlight": lambda a: f"브라우저에서 '{a.get('text', '')}' 표시하는 중…",
@@ -301,6 +307,10 @@ def result_text(result: dict) -> str:
         return (f"{result.get('seconds')}초, 출력: {out[-1][:60]}" if out else f"{result.get('seconds')}초, 출력 없음")
     if "elements" in result:
         return f"{(result.get('title') or '')[:40]} · 누를 것 {len(result['elements'])}개"
+    if "bookmarks" in result:
+        return f"즐겨찾기 {len(result['bookmarks'])}개"
+    if "history" in result:
+        return f"방문 기록 {len(result['history'])}개"
     if "tabs" in result:
         return f"탭 {len(result['tabs'])}개"
     if "files" in result:

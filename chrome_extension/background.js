@@ -4,35 +4,52 @@
 // 클릭·입력은 Claude in Chrome처럼 크롬 디버거(CDP)로 '진짜' 마우스·키보드 신호를 보낸다.
 // (웹페이지가 가짜 click()을 무시하는 경우가 많아서.) 디버거를 못 쓰면 예전 방식으로 대신 한다.
 
-const PURPLU_URL = "ws://127.0.0.1:8765/ext";
-let ws = null;
-let connected = false, retry = 0;
+// 퍼플루와의 연결은 숨은 페이지(offscreen.html)가 늘 붙잡고 있다.
+// (백그라운드 일꾼은 브라우저가 수시로 재워서 — 특히 웨일 — 연결이 끊겼었다.)
+// 숨은 페이지 → 여기: {type:"cmd", msg} 를 받아 실행하고 결과를 돌려준다.
+let connected = false;
 
-function connect() {
+async function ensureOffscreen() {
+  if (!chrome.offscreen) { legacyConnect(); return; }   // 숨은 페이지를 못 쓰는 브라우저면 예전 방식
+  try {
+    if (await chrome.offscreen.hasDocument()) return;
+    await chrome.offscreen.createDocument({ url: "offscreen.html", reasons: ["WORKERS"], justification: "PC의 퍼플루와 연결을 유지" });
+  } catch (e) {
+    if (!String(e.message || e).includes("single offscreen")) legacyConnect();
+  }
+}
+
+async function handle(msg) {
+  if (msg.type === "settings") { await chrome.storage.local.set({ purplu_settings: msg.data || {} }); return null; }
+  if (!msg.id) return null;
+  const show = WORK_CMDS.has(msg.cmd);
+  if (show) await working(true, msg.cmd);
+  let reply;
+  try { reply = { id: msg.id, ok: true, result: await run(msg.cmd, msg.args || {}) }; }
+  catch (err) { reply = { id: msg.id, ok: false, error: String(err && err.message || err) }; }
+  if (show) working(false);
+  return reply;
+}
+
+chrome.runtime.onMessage.addListener((m, sender, send) => {
+  if (m && m.type === "cmd") { handle(m.msg).then(send); return true; }      // 숨은 페이지가 보낸 명령
+  if (m && m.type === "conn") { connected = !!m.on; chrome.action.setBadgeText({ text: m.on ? "" : "off" }); return; }
+  if (m && m.type === "keepalive") { send({ ok: true }); return; }
+});
+function toPurplu(data) { chrome.runtime.sendMessage({ type: "to_purplu", data }).catch(() => {}); }
+
+// 숨은 페이지를 못 쓸 때만: 예전처럼 여기서 직접 연결
+let ws = null, retry = 0;
+function legacyConnect() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-  try { ws = new WebSocket(PURPLU_URL); } catch { return; }
-  ws.onopen = () => {
-    connected = true; retry = 0;
-    ws.send(JSON.stringify({ type: "hello", version: chrome.runtime.getManifest().version, browser: browserName() }));
-    chrome.action.setBadgeText({ text: "" });
-  };
-  ws.onclose = () => {
-    connected = false; chrome.action.setBadgeText({ text: "off" });
-    retry = Math.min(retry * 2 || 1000, 8000); setTimeout(connect, retry);   // 퍼플루가 다시 켜지면 바로 붙게
-  };
-  ws.onerror = () => {};
-  ws.onmessage = async (e) => {
+  try { ws = new WebSocket("ws://127.0.0.1:8765/ext"); } catch { return; }
+  ws.onopen = () => { connected = true; retry = 0; ws.send(JSON.stringify({ type: "hello", version: chrome.runtime.getManifest().version, browser: browserName() })); };
+  ws.onclose = () => { connected = false; retry = Math.min(retry * 2 || 1000, 8000); setTimeout(legacyConnect, retry); };
+  ws.onmessage = async e => {
     const msg = JSON.parse(e.data);
-    if (msg.type === "ping") { ws.send(JSON.stringify({ type: "pong" })); return; }
-    if (msg.type === "settings") { await chrome.storage.local.set({ purplu_settings: msg.data || {} }); return; }
-    if (!msg.id) return;
-    let reply;
-    const show = WORK_CMDS.has(msg.cmd);
-    if (show) await working(true, msg.cmd);
-    try { reply = { id: msg.id, ok: true, result: await run(msg.cmd, msg.args || {}) }; }
-    catch (err) { reply = { id: msg.id, ok: false, error: String(err && err.message || err) }; }
-    if (show) working(false);
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(reply));
+    if (msg.type === "ping") { ws.send('{"type":"pong"}'); return; }
+    const reply = await handle(msg);
+    if (reply && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(reply));
   };
 }
 
@@ -47,7 +64,8 @@ function browserName() {
 }
 // 사용자가 이 브라우저 창을 누르면 퍼플루에 알려서, 명령이 지금 쓰는 브라우저로 오게 한다
 chrome.windows.onFocusChanged.addListener(id => {
-  if (id !== chrome.windows.WINDOW_ID_NONE && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "focus" }));
+  if (id === chrome.windows.WINDOW_ID_NONE) return;
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send('{"type":"focus"}'); else toPurplu({ type: "focus" });
 });
 
 // ---------- 작업 중 표시: 퍼플루가 이 탭을 쓰는 동안 화면 가장자리에 보라색 빛 ----------
@@ -77,11 +95,11 @@ async function showWork(on, cmd, s) {
 
 // 서비스 워커가 잠들어도 30초마다 깨어나서 다시 연결
 chrome.alarms.create("purplu-keepalive", { periodInMinutes: 0.5 });
-chrome.alarms.onAlarm.addListener(() => connect());
-chrome.runtime.onStartup.addListener(connect);
-chrome.runtime.onInstalled.addListener(connect);
-chrome.runtime.onMessage.addListener((m, _s, send) => { if (m === "status") send({ connected }); });
-connect();
+chrome.alarms.onAlarm.addListener(() => ensureOffscreen());
+chrome.runtime.onStartup.addListener(ensureOffscreen);
+chrome.runtime.onInstalled.addListener(ensureOffscreen);
+chrome.runtime.onMessage.addListener((m, _s, send) => { if (m === "status" && !chrome.offscreen) send({ connected }); });
+ensureOffscreen();
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 async function settings() { return (await chrome.storage.local.get("purplu_settings")).purplu_settings || {}; }
@@ -304,6 +322,20 @@ async function run(cmd, a) {
       }
       const tab = await activeTab();
       return await toContent(tab.id, { type: "hl_list" });
+    }
+    case "bookmarks": {   // 즐겨찾기 찾기 (이름·주소 일부로)
+      const q = (a.query || "").trim();
+      let rows = q ? await chrome.bookmarks.search(q) : [];
+      if (!rows.length) {   // 검색어가 없거나 못 찾으면 전체에서 비슷한 것
+        const flat = []; (function walk(n) { (n || []).forEach(x => { if (x.url) flat.push(x); walk(x.children); }); })(await chrome.bookmarks.getTree());
+        const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+        rows = words.length ? flat.filter(b => words.some(w => (b.title + " " + b.url).toLowerCase().includes(w))) : flat;
+      }
+      return { bookmarks: rows.filter(b => b.url).slice(0, 30).map(b => ({ title: b.title, url: b.url })) };
+    }
+    case "history": {   // 방문 기록 찾기
+      const rows = await chrome.history.search({ text: a.query || "", maxResults: 25, startTime: Date.now() - 1000 * 60 * 60 * 24 * 90 });
+      return { history: rows.map(h => ({ title: h.title, url: h.url, visits: h.visitCount })) };
     }
     case "clear_highlights": { const tab = await activeTab(); return await toContent(tab.id, { type: "hl_clear" }); }
     default: throw new Error("모르는 명령: " + cmd);

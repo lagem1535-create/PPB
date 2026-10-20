@@ -43,6 +43,7 @@ wmic process where "name='pythonw.exe' and CommandLine like '%%-m purplu%%'" cal
 timeout /t 1 >nul
 
 rem ---- 5. 켜기 ----
-start "" .venv\Scripts\pythonw.exe -m purplu
+rem 지킴이가 퍼플루를 켜고, 갑자기 꺼지면 다시 켜요 (트레이 "종료"로 끈 건 그대로)
+start "" .venv\Scripts\pythonw.exe -m purplu.keeper
 echo [퍼플루] 켰어요! 작업 표시줄 트레이의 퍼플루 아이콘을 확인하세요.
 timeout /t 2 >nul

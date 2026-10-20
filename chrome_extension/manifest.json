@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "퍼플루 브라우저 손",
-  "version": "2.1.1",
+  "version": "3.0.0",
   "description": "퍼플루(PC의 AI 컴패니언)가 크롬·웨일·엣지를 진짜 마우스·키보드로 다루고, 사이트에 하이라이트·노트를 남겨요. 이 PC의 퍼플루에만 연결돼요.",
-  "permissions": ["tabs", "scripting", "alarms", "storage", "debugger"],
+  "permissions": ["tabs", "scripting", "alarms", "storage", "debugger", "bookmarks", "history", "offscreen"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },
   "content_scripts": [{ "matches": ["http://*/*", "https://*/*"], "js": ["content.js"], "run_at": "document_idle" }],

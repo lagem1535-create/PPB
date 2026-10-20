@@ -1,5 +1,6 @@
 """퍼플루 실행: python -m purplu"""
 import ctypes
+import os
 import sys
 import threading
 import time
@@ -25,6 +26,11 @@ def _setup_log():
         sys.stdout = sys.stderr = log
     print(f"\n==== 퍼플루 시작 {time.strftime('%Y-%m-%d %H:%M:%S')} ====")
     sys.excepthook = lambda t, v, tb: traceback.print_exception(t, v, tb)
+    try:  # 프로그램이 통째로 죽을 때도 어디서 죽었는지 남긴다
+        import faulthandler
+        faulthandler.enable(open(config.DATA_DIR / "crash.log", "a", encoding="utf-8"), all_threads=True)
+    except Exception:
+        pass
     threading.excepthook = lambda a: traceback.print_exception(a.exc_type, a.exc_value, a.exc_traceback)
 
 
@@ -39,16 +45,13 @@ def _already_running() -> bool:
 
 def main():
     if _already_running():  # 켜져 있는 퍼플루가 쓰는 파일은 건드리지 않게 먼저 확인
-        ctypes.windll.user32.MessageBoxW(None, "퍼플루가 이미 켜져 있어요. 작업 표시줄 트레이를 확인해 주세요.", "퍼플루", 0x40)
-        return
+        if not os.environ.get("PURPLU_KEEPER"):
+            ctypes.windll.user32.MessageBoxW(None, "퍼플루가 이미 켜져 있어요. 작업 표시줄 트레이를 확인해 주세요.", "퍼플루", 0x40)
+        sys.exit(3)  # 지킴이에게 '이미 켜져 있음'을 알린다
     moved = config.migrate_old_data()  # 예전에 C 드라이브 등에 있던 데이터를 data/ 로
     _setup_log()
     if moved:
         print("예전 데이터를 data/ 로 옮김:", len(moved), "개")
-    try:
-        import PySide6.QtWebEngineWidgets  # noqa: F401  PC 대화창용 — QApplication보다 먼저 불러와야 한다
-    except ImportError:
-        pass
     qt = QApplication(sys.argv)
     qt.setQuitOnLastWindowClosed(False)
     config.load()
