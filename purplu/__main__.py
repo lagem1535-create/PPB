@@ -65,6 +65,9 @@ def main():
     if config.get_api_key():
         app.brain.wake()  # 켜자마자 Gemini에 미리 연결 → 첫 말부터 바로 대답  # 앱 목록 미리 불러두기 (몇 초 걸림)
 
+    if config.settings().get("pc_chat_pinned"):  # 고정해 둔 대화창은 켤 때 다시 오른쪽에
+        app.open_chat(activate=False)
+        app.chat_window.apply_pin()
     hotkey.watch(config.settings()["talk_key"], app.brain.talk_start, app.brain.talk_end)
     hotkey.watch("ctrl+alt+s", lambda: app.bridge.event.emit("stop", None))
     # 원본의 단축키들: 마우스 자리 가리키기 / 커서 항상 보이기 켜고 끄기 / 집으로
