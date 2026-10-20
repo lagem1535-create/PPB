@@ -131,8 +131,15 @@ def _local_networks() -> list:
 
 
 def _mention_list() -> list[dict]:
-    """@로 부를 수 있는 것: 열린 창, 브라우저 탭, 메모."""
+    """@로 부를 수 있는 것: 브라우저(크롬·웨일), 열린 창, 브라우저 탭, 앱, 메모."""
     out = []
+    try:
+        from . import browser
+        connected = browser.names()
+        for name in ("크롬", "웨일", "엣지"):
+            out.append({"label": name, "kind": "브라우저" if name in connected else "브라우저 (확장 연결 안 됨)", "id": name})
+    except Exception:
+        pass
     try:
         from .tools.windows import _windows
         for _, title in _windows()[:20]:
@@ -146,6 +153,12 @@ def _mention_list() -> list[dict]:
             for t in browser.call("tabs", timeout=4)[:20]:
                 out.append({"label": (t.get("title") or t.get("url") or "")[:40], "kind": "탭", "id": t["tab_id"],
                             "url": t.get("url", "")})
+    except Exception:
+        pass
+    try:
+        from .tools.apps import all_apps
+        for name in sorted(all_apps())[:400]:
+            out.append({"label": name[:40], "kind": "앱", "id": name})
     except Exception:
         pass
     try:
@@ -171,11 +184,39 @@ def _expand_chat(text: str, mentions: list) -> str:
             pass
         text = f"[/{name} 스킬] {rest}\n(지시: use_skill('{name}')로 설명서를 먼저 읽고 그대로 해.)"
     notes = []
+    # 목록에서 안 고르고 그냥 쓴 @웨일, @계산기 같은 것도 알아듣기
+    import re
+    picked = {m.get("label") for m in mentions}
+    for tok in re.findall(r"@(\S+)", text):
+        if tok in picked:
+            continue
+        if tok in ("웨일", "크롬", "엣지", "whale", "chrome", "edge"):
+            name = {"whale": "웨일", "chrome": "크롬", "edge": "엣지"}.get(tok.lower(), tok)
+            mentions = mentions + [{"label": tok, "kind": "브라우저", "id": name}]
+        else:
+            try:
+                from .tools.apps import find_app
+                hit = find_app(tok)
+                if hit:
+                    mentions = mentions + [{"label": tok, "kind": "앱", "id": hit[1]}]
+            except Exception:
+                pass
     for m in mentions:
         label = m.get("label", "")
         if f"@{label}" not in text:
             continue
-        if m.get("kind") == "탭":
+        if str(m.get("kind", "")).startswith("브라우저"):
+            from . import browser
+            name = m.get("id")
+            if name in browser.names():
+                browser.prefer(name)
+                notes.append(f"@{label} = {name} 브라우저 → browser_* 도구는 이제 {name}으로 가 (확장 연결됨)")
+            else:
+                notes.append(f"@{label} = {name} 브라우저. 확장이 아직 연결 안 됐어 → open_app('{name}')로 켜고, "
+                             f"안 되면 사용자에게 {name}에 퍼플루 확장을 설치·새로고침해 달라고 해")
+        elif m.get("kind") == "앱":
+            notes.append(f"@{label} = PC 앱 '{m.get('id')}' → open_app으로 열고 조작")
+        elif m.get("kind") == "탭":
             notes.append(f"@{label} = 브라우저 탭 (tab_id {m.get('id')}, {m.get('url', '')}) → browser_switch_tab 후 browser_read")
         elif m.get("kind") == "창":
             notes.append(f"@{label} = PC에 열린 창 '{m.get('id')}' → windows_action focus_window 후 look_at_screen")

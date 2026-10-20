@@ -75,8 +75,8 @@ def _python_exe() -> str:
     return str(exe)
 
 
-def _confirm(code: str, purpose: str, risks: list[str]) -> bool:
-    req = {"id": next(_ids), "code": code, "purpose": purpose, "risks": risks}
+def _confirm(code: str, purpose: str, risks: list[str], kind: str = "파이썬 코드") -> bool:
+    req = {"id": next(_ids), "code": code, "purpose": purpose, "risks": risks, "kind": kind}
     _pending[req["id"]] = {"event": threading.Event(), "ok": False}
     try:
         ask_user(req)

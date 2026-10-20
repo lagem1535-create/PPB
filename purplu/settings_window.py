@@ -476,6 +476,7 @@ class SettingsWindow(QWidget):
                            ("show_thoughts", "💭 생각 내용 보여주기 (생각하는 모델에서 나와요)"),
                            ("show_steps", "⚙ 실행하는 명령과 결과 보여주기 (Claude처럼)"),
                            ("show_commands", "$ 실제로 실행하는 명령어도 보여주기 (파이썬 함수·프로그램·HTTP)"),
+                           ("shell_enabled", "⌨ PC 명령어(PowerShell·cmd) 실행 허용 (확인 방식은 파이썬과 같아요)"),
                            ("python_enabled", "🐍 파이썬 코드 실행 허용 (작업 폴더: D:\\bot\\data\\python)"),
 
                            ("computer_control", "컴퓨터 조작 허용 (클릭·타이핑)"),

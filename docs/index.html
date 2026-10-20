@@ -700,7 +700,7 @@ function connect() {
       case "skill": fillSkill(data); break;
       case "hint": showCard(`🙉 ${esc(data)}`, 3500); A.hop.velocity += 200; break;
       case "python_ask":
-        showCard(`<b>🐍 퍼플루가 파이썬 코드를 실행하려고 해요</b><br>${esc(data.purpose || "")}
+        showCard(`<b>${(data.kind || "파이썬").startsWith("파이썬") ? "🐍" : "⌨"} 퍼플루가 이 ${esc(data.kind || "파이썬 코드")}를 실행하려고 해요</b><br>${esc(data.purpose || "")}
           ${(data.risks || []).length ? `<div style="background:#7F1D1D;color:#FEE2E2;padding:8px;border-radius:8px;margin-top:6px">⚠ 위험한 부분: ${esc(data.risks.join(" · "))}</div>` : ""}
           <pre style="background:#0F0A1C;padding:10px;border-radius:10px;max-height:34vh;overflow:auto;font-size:13px;white-space:pre-wrap">${esc(data.code)}</pre>
           <div class="row" style="justify-content:flex-end"><button class="btn" onclick="send({type:'python_answer',id:${data.id},ok:false});$('#card').style.display='none'">취소</button>
@@ -1102,6 +1102,7 @@ function fillSettings() {
       row("보안 수준", "낮추면 경고가 떠요", sel("security_level", secLevels, "seclevel"), true),
       row("컴퓨터 조작 허용", "클릭·입력·키 누르기", tog("computer_control")),
       row("🐍 파이썬 코드 실행 허용", "", tog("python_enabled")),
+      row("⌨ PC 명령어 실행 허용", "PowerShell·cmd (끄기·설정·네트워크 등). 확인 방식은 아래와 같아요", tog("shell_enabled")),
       row("🐍 실행 전 확인", "", sel("python_approval", pyModes, "pymode"), true),
     ]),
     group("💜 작업 중 표시", [

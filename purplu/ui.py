@@ -237,7 +237,7 @@ class PythonApproval(QWidget):
     def __init__(self, req: dict, on_answer):
         super().__init__(None, Qt.Window | Qt.WindowStaysOnTopHint)
         self.req, self.on_answer = req, on_answer
-        self.setWindowTitle("퍼플루 — 파이썬 실행 확인")
+        self.setWindowTitle(f"퍼플루 — {req.get('kind', '파이썬 코드')} 실행 확인")
         bg, fg, code_bg, code_fg = (("#FAF8FF", "#1F1235", "white", "#3B0764") if is_light()
                                     else ("#1E1235", "#F5F3FF", "#0F0A1C", "#E9D5FF"))
         self.setStyleSheet(f"QWidget{{background:{bg};color:{fg};font-family:'Malgun Gothic';font-size:10pt}}"
@@ -245,7 +245,7 @@ class PythonApproval(QWidget):
                            "border:1px solid #4C3A75;border-radius:8px;padding:6px}}"
                            "QPushButton{border:none;border-radius:8px;padding:9px 18px;font-weight:700}")
         lay = QVBoxLayout(self)
-        title = QLabel(f"🐍 퍼플루가 이 파이썬 코드를 실행하려고 해요<br><b>{html.escape(req.get('purpose') or '')}</b>")
+        title = QLabel(f"{'🐍' if req.get('kind', '파이썬').startswith('파이썬') else '⌨'} 퍼플루가 이 {req.get('kind', '파이썬 코드')}를 실행하려고 해요<br><b>{html.escape(req.get('purpose') or '')}</b>")
         title.setTextFormat(Qt.RichText)
         lay.addWidget(title)
         if req.get("risks"):

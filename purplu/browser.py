@@ -29,10 +29,22 @@ def names() -> list[str]:
     return [info["name"] for _, info in _alive()]
 
 
+_prefer = {"name": "", "until": 0.0}
+
+
+def prefer(name: str, seconds: float = 180):
+    """'@웨일'처럼 사용자가 브라우저를 고르면, 한동안 그 브라우저로 명령을 보낸다."""
+    _prefer.update(name=name, until=time.monotonic() + seconds)
+
+
 def _current():
     alive = _alive()
     if not alive:
         return None, None
+    if _prefer["name"] and time.monotonic() < _prefer["until"]:
+        for ws, info in alive:
+            if info["name"] == _prefer["name"]:
+                return ws, info
     return max(alive, key=lambda x: x[1]["focus"])
 
 

@@ -7,6 +7,7 @@ from .files import find_file, open_path
 from ..notes import start_meeting_notes, stop_meeting_notes
 from .memos import delete_memo, leave_memo, list_memos
 from .pyrun import run_python
+from .shell import run_command
 from . import web_browser as wb
 from .reminders import cancel_reminder, list_reminders, set_reminder
 from .system import media_control, read_clipboard, write_clipboard
@@ -51,6 +52,11 @@ DECLARATIONS = [
         {"text": (S, "메모 내용. 짧고 알아보기 쉽게, 필요하면 여러 줄"),
          "pin": (B, "PC 화면에 포스트잇으로 붙이기 (기본 true)")}, ["text"]),
     _fn("list_memos", "남겨 둔 메모 목록을 본다."),
+    _fn("run_command", "PC 명령어를 실행한다 (PowerShell 기본, cmd도). Windows 기능은 거의 다 된다: 끄기·다시 시작 "
+        "(shutdown /s /t 60), 예약 종료 취소(shutdown /a), 프로그램·서비스 목록, 네트워크(ipconfig), 파일 옮기기·찾기, "
+        "설정 바꾸기, 프린터, 블루투스 등. 다른 도구로 안 되면 이걸 써. 실행 전에 사용자가 확인할 수 있다.",
+        {"command": (S, "실행할 명령어"), "purpose": (S, "무슨 일을 하는지 한 줄 (확인창에 보인다)"),
+         "shell": (S, "powershell (기본) 또는 cmd"), "timeout": (I, "초, 기본 60")}, ["command", "purpose"]),
     _fn("run_python", "파이썬 코드를 써서 이 PC에서 실행한다. 다른 도구로 안 되는 일에만: 복잡한 계산, 표·CSV·엑셀 정리, "
         "파일 만들기·변환(이미지 크기 바꾸기 등), 데이터 분석, 날짜 계산 등. 결과는 print로 출력한다. "
         "작업 폴더에서 실행되니 새 파일은 거기에 만든다(다른 폴더 파일은 전체 경로로 읽기만). "
@@ -178,6 +184,7 @@ _RUNNERS = {
     "open_app": open_app, "open_url": open_url, "find_file": find_file,
     "open_path": open_path, "web_research": web_research,
     "leave_memo": leave_memo, "list_memos": list_memos, "delete_memo": delete_memo, "run_python": run_python,
+    "run_command": run_command,
     "start_meeting_notes": start_meeting_notes, "stop_meeting_notes": stop_meeting_notes,
     "browser_tabs": wb.browser_tabs, "browser_open": wb.browser_open, "browser_switch_tab": wb.browser_switch_tab,
     "browser_close_tab": wb.browser_close_tab, "browser_read": wb.browser_read, "browser_click": wb.browser_click,
@@ -229,6 +236,7 @@ LABELS = {
     "browser_highlight": lambda a: f"브라우저에서 '{a.get('text', '')}' 표시하는 중…",
     "leave_memo": lambda a: "메모 남기는 중…",
     "run_python": lambda a: f"🐍 파이썬 실행: {a.get('purpose', '')}",
+    "run_command": lambda a: f"⌨ 명령어: {a.get('purpose', '')}",
     "start_meeting_notes": lambda a: "● 회의록 녹음 시작",
     "stop_meeting_notes": lambda a: "회의록 정리하는 중…",
     "set_reminder": lambda a: f"⏰ '{a.get('text', '')}' 알림 맞추는 중…",
