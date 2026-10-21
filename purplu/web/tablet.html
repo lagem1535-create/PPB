@@ -251,7 +251,7 @@
   <div id="attachprev"><img id="attachimg"> <button class="btn" id="attachx" style="padding:6px 10px">✕</button></div>
   <div id="chatbar">
     <div class="gbox"><div class="inner">
-      <textarea id="cin" rows="1" placeholder="퍼플루에게 물어보기  ( / 스킬 · @ 멘션 )"></textarea>
+      <textarea id="cin" rows="1" placeholder="퍼플루에게 물어보기  ( / 명령 · # 스킬 · @ 멘션 )"></textarea>
       <div class="tools">
         <button id="cimg" title="그림 첨부">📎</button>
         <select id="cmodel" title="대화 모델"></select>
@@ -589,7 +589,7 @@ function renderSide() {
   let h = "";
   if (chatHistory.length) {
     h += `<div class="when">이전 대화</div>`;
-    h += chatHistory.slice(-40).map(m => m.role === "user" ? `<div class="me">${esc(m.text)}</div>`
+    h += chatHistory.slice(-40).map(m => m.role === "user" ? `<div class="me">${esc(m.text.split("\n").filter(l => !l.startsWith("[멘션]") && !l.startsWith("(지시:")).join("\n"))}</div>`
       : stepsHtml((m.steps || []).map(s => ({ ...s, done: true, label: s.call })), false) + (m.text && m.text !== "(실행만 했어요)" ? ai(esc(m.text)) : "")).join("");
   }
   h += pastTurns.map(t => turnHtml(t, false)).join("");

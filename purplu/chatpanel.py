@@ -16,7 +16,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (QColor, QConicalGradient, QCursor, QFont, QGuiApplication, QLinearGradient, QPainter,
                            QPainterPath, QPen, QRadialGradient)
 from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QListWidget,
-                               QListWidgetItem, QMenu, QPlainTextEdit, QPushButton, QScrollArea, QStyle,
+                               QListWidgetItem, QMenu, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QStyle,
                                QStyledItemDelegate, QVBoxLayout, QWidget)
 
 from . import config, store
@@ -545,13 +545,34 @@ class ChatPanel(QWidget):
         self.attach_lbl = QLabel()
         self.attach_lbl.hide()
         bl.addWidget(self.attach_lbl)
+        self.reply_to = ""
+        self.reply_box = QFrame()
+        rb = QHBoxLayout(self.reply_box)
+        rb.setContentsMargins(10, 6, 6, 6)
+        self.reply_lbl = QLabel()
+        self.reply_lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        rx = QPushButton("✕")
+        rx.setFixedSize(22, 22)
+        rx.setCursor(Qt.PointingHandCursor)
+        rx.setStyleSheet("background:transparent; border:none;")
+        rx.clicked.connect(lambda: (setattr(self, "reply_to", ""), self.reply_box.hide()))
+        rb.addWidget(self.reply_lbl, 1)
+        rb.addWidget(rx)
+        self.reply_box.hide()
+        bl.addWidget(self.reply_box)
+        # 대답 글을 드래그해서 고르면 뜨는 '답글' 버튼
+        self.quote_btn = QPushButton("↪ 답글", self)
+        self.quote_btn.setCursor(Qt.PointingHandCursor)
+        self.quote_btn.hide()
+        self.quote_btn.clicked.connect(lambda: self._reply(self._picked_text))
+        self.scroll.verticalScrollBar().valueChanged.connect(lambda _: self.quote_btn.hide())   # 스크롤하면 숨기기
 
         self.glow = GlowBox()
         gl = QVBoxLayout(self.glow)
         gl.setContentsMargins(14, 10, 12, 6)
         self.input = QPlainTextEdit()
         self.input.setObjectName("input")
-        self.input.setPlaceholderText("퍼플루에게 물어보기  ( / 스킬 · @ 멘션 )")
+        self.input.setPlaceholderText("퍼플루에게 물어보기  ( / 명령 · # 스킬 · @ 멘션 )")
         self.input.setFixedHeight(46)
         self.input.installEventFilter(self)
         from PySide6.QtWidgets import QApplication
@@ -709,6 +730,8 @@ class ChatPanel(QWidget):
             self._render_timer.start(60)
 
     def _bubble(self, text: str, img: str = ""):
+        # 예전에 저장된 말에 붙어 있던 퍼플루용 설명([멘션] …, (지시: …))은 빼고 내가 친 글만
+        text = "\n".join(l for l in text.split("\n") if not l.startswith(("[멘션]", "(지시:"))).strip()
         lab = QLabel(html.escape(text, quote=False).replace("\n", "<br>") + (f"<br><img src='{img}' width='200'>" if img else ""))
         lab.setTextFormat(Qt.RichText)
         lab.setWordWrap(True)
@@ -731,6 +754,53 @@ class ChatPanel(QWidget):
         lab.setOpenExternalLinks(True)
         lab.setStyleSheet(f"font-size:{size};")
         return lab
+
+    def _reply_text(self, text: str):
+        """퍼플루의 대답: 글 아래에 복사 · 답글. 글을 드래그하면 고른 부분에만 답글."""
+        P = pal()
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(2)
+        lab = self._text(html.escape(text, quote=False).replace("\n", "<br>"))
+        lab.installEventFilter(self)
+        lab.setProperty("reply", True)
+        v.addWidget(lab)
+        row = QHBoxLayout()
+        row.setSpacing(2)
+        style = (f"QPushButton {{ background:transparent; border:none; border-radius:8px; color:{P['dim']}; padding:3px 8px; font-size:9pt; }}"
+                 f"QPushButton:hover {{ background:{P['card']}; color:{P['text']}; }}")
+        cp = QPushButton("⧉ 복사")
+        rp = QPushButton("↪ 답글")
+        for b in (cp, rp):
+            b.setCursor(Qt.PointingHandCursor)
+            b.setStyleSheet(style)
+            row.addWidget(b)
+        row.addStretch(1)
+
+        def copy():
+            QGuiApplication.clipboard().setText(text)
+            cp.setText("✓ 복사됨")
+            QTimer.singleShot(1200, lambda: cp.setText("⧉ 복사") if cp.parent() else None)
+        cp.clicked.connect(copy)
+        rp.clicked.connect(lambda: self._reply(lab.selectedText() or text))
+        v.addLayout(row)
+        return w
+
+    def _reply(self, quote: str):
+        quote = " ".join((quote or "").split())
+        self.quote_btn.hide()
+        if not quote:
+            return
+        self.reply_to = quote
+        P = pal()
+        fm = self.reply_lbl.fontMetrics()
+        self.reply_lbl.setText(fm.elidedText(f"↪ 답글: {quote}", Qt.ElideRight, max(120, self.width() - 90)))
+        self.reply_lbl.setToolTip(quote[:500])
+        self.reply_box.setStyleSheet(f"QFrame {{ background:{P['card']}; border-left:3px solid {self._cc}; border-radius:8px; }}"
+                                     f"QLabel {{ color:{P['dim']}; border:none; background:transparent; }}")
+        self.reply_box.show()
+        self.input.setFocus()
 
     def _steps(self, steps: list, open_=False, key=""):
         """'실행됨 명령 N개 ⌄' 아래에 한 줄씩. 줄을 누르면 실제 명령·결과가 펼쳐진다. 펼친 상태는 다시 그려도 유지."""
@@ -823,7 +893,7 @@ class ChatPanel(QWidget):
                 add(self._steps([{**st, "done": True, "label": st.get("label") or st.get("call")} for st in m.get("steps") or []],
                                 key=f"h{m.get('t', '')}"))
                 if m.get("text") and m["text"] != "(실행만 했어요)":
-                    add(self._text(html.escape(m["text"], quote=False).replace("\n", "<br>")))
+                    add(self._reply_text(m["text"]))
         for i, t in enumerate(([] if self.mini else self.past[-10:]) + [self.turn]):
             live = t is self.turn
             if t["heard"]:
@@ -832,7 +902,10 @@ class ChatPanel(QWidget):
                 add(self._text(f"<span style='color:{P['dim']}'>💭 생각 중…</span>"))
             add(self._steps(t["steps"], live and self.state in ("thinking", "acting"), key=f"t{id(t)}"))
             if t["reply"]:
-                add(self._text(html.escape(t["reply"], quote=False).replace("\n", "<br>")))
+                if live and self.state != "idle":   # 아직 말하는 중이면 글만
+                    add(self._text(html.escape(t["reply"], quote=False).replace("\n", "<br>")))
+                else:
+                    add(self._reply_text(t["reply"]))
             for r in t["results"]:
                 lab = self._text(r, "10pt")
                 lab.setStyleSheet(f"background:{P['card']}; border:1px solid {P['line']}; border-radius:12px; padding:8px 10px;")
@@ -995,10 +1068,18 @@ class ChatPanel(QWidget):
         self.input.clear()
         self.sugg.hide()
 
+        quote, self.reply_to = self.reply_to, ""
+        self.reply_box.hide()
+
         def work():
             from .server import _expand_chat
             data, mime = (img or (None, None))
-            self.brain.send_text(_expand_chat(text, mentions), data, mime or "image/jpeg")
+            full = _expand_chat(text, mentions)
+            shown = text
+            if quote:   # 답글: 퍼플루에게는 어느 부분에 대한 말인지, 말풍선에는 짧게
+                full = f"(네 앞 대답 중 이 부분에 대한 말이야: \"{quote[:600]}\")\n{full}"
+                shown = f"↪ {quote[:60]}{'…' if len(quote) > 60 else ''}\n{text}"
+            self.brain.send_text(full, data, mime or "image/jpeg", shown=shown)
         threading.Thread(target=work, daemon=True).start()
 
     def _attach(self):
@@ -1017,6 +1098,23 @@ class ChatPanel(QWidget):
 
     def eventFilter(self, obj, e):
         t = e.type()
+        if t == e.Type.MouseButtonRelease and isinstance(obj, QLabel) and obj.property("reply"):
+            sel = obj.selectedText().strip()
+            if sel:
+                self._picked_text = sel
+                P = pal()
+                self.quote_btn.setStyleSheet(f"QPushButton {{ background:{self._cc}; color:{on_color(self._cc)}; border:none; border-radius:10px; padding:5px 12px; font-weight:600; }}")
+                self.quote_btn.adjustSize()
+                pos = self.mapFromGlobal(e.globalPosition().toPoint())
+                x = max(6, min(self.width() - self.quote_btn.width() - 6, pos.x() - self.quote_btn.width() // 2))
+                self.quote_btn.move(x, max(6, pos.y() - self.quote_btn.height() - 12))
+                self.quote_btn.show()
+                self.quote_btn.raise_()
+            else:
+                self.quote_btn.hide()
+            return False
+        if t == e.Type.MouseButtonPress and self.quote_btn.isVisible() and obj is not self.quote_btn:
+            QTimer.singleShot(150, self.quote_btn.hide)
         if t == e.Type.MouseMove and obj is self.sugg.viewport():   # 마우스가 있는 줄이 골라지게
             it = self.sugg.itemAt(e.position().toPoint())
             if it is not None and it is not self.sugg.currentItem():

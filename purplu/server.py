@@ -556,7 +556,7 @@ class TabletServer:
             import base64
             img = base64.b64decode(m["image"]) if m.get("image") else None
             text = await asyncio.to_thread(_expand_chat, m.get("text", ""), m.get("mentions") or [])
-            self.brain.send_text(text, img, m.get("mime") or "image/jpeg")
+            self.brain.send_text(text, img, m.get("mime") or "image/jpeg", shown=m.get("text", ""))
         elif t == "mentions":
             await self._reply(ws, "mentions", await asyncio.to_thread(_mention_list))
         elif t == "list_skills":

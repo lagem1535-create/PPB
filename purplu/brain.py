@@ -157,13 +157,14 @@ class Brain:
         if self._talking and self._source == "tablet":
             self.loop.call_soon_threadsafe(self._incoming, chunk)
 
-    def send_text(self, text: str, image: bytes | None = None, mime: str = "image/jpeg"):
-        """글 채팅 (탭·웹). 말로 하는 대화와 같은 세션·같은 대화목록에 이어진다."""
+    def send_text(self, text: str, image: bytes | None = None, mime: str = "image/jpeg", shown: str | None = None):
+        """글 채팅 (탭·웹). 말로 하는 대화와 같은 세션·같은 대화목록에 이어진다.
+        shown: 말풍선·대화목록에 보일 글 (내가 친 그대로). text 는 @멘션 설명 등을 붙여 퍼플루에게 보내는 글."""
         self._keep_alive = True
         control.stop_event.clear()
-        self._call(self._send_text(text, image, mime))
+        self._call(self._send_text(text, image, mime, shown))
 
-    async def _send_text(self, text, image, mime):
+    async def _send_text(self, text, image, mime, shown=None):
         if self._speaker:
             self._speaker.clear()
         self.emit("audio_clear", None)
@@ -173,7 +174,7 @@ class Brain:
         text = (text or "").strip() or ("이 그림 봐 줘" if image else "")
         if not text:
             return
-        self._turn_user = text + (" [그림 첨부]" if image else "")
+        self._turn_user = ((shown or "").strip() or text) + (" [그림 첨부]" if image else "")
         self.emit("state", "listening")
         self.emit("heard", self._turn_user)
         parts = [types.Part(text=text)]
