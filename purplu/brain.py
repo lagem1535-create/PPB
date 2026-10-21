@@ -640,6 +640,9 @@ class Brain:
         for fc in calls:
             args = dict(fc.args or {})
             label = tools.label(fc.name, args)
+            if fc.name.startswith("browser_"):   # 어느 브라우저에서 하는지 보이게 (웨일에서 '네이버' 여는 중…)
+                from . import browser as _br
+                label = label.replace("브라우저", _br.current_name() or "브라우저")
             call = tools.call_text(fc.name, args)
             self.emit("step", {"label": label, "call": call, "done": False})
             t0 = time.perf_counter()

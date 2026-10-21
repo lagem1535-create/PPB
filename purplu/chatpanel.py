@@ -130,7 +130,9 @@ class FaceView(QWidget):
         # 빛
         if self.state == "listening":
             glow = QRadialGradient(body.center().x(), body.top() + 200, 520)
-            glow.setColorAt(0, QColor(168, 85, 247, 150))
+            aura = QColor(config.settings().get("chat_color") or config.settings().get("color") or "#8B5CF6")
+            aura.setAlpha(150)
+            glow.setColorAt(0, aura)   # 듣는 동안의 빛 = 내가 고른 색
             glow.setColorAt(1, QColor(0, 0, 0, 0))
             p.fillRect(QRectF(-200, -200, 1300, 900), glow)
         path = QPainterPath()
@@ -212,6 +214,22 @@ class FaceView(QWidget):
                 p.setBrush(QColor(255, 255, 255, int(255 * (1 - k * .3))))
                 p.drawEllipse(QPointF(body.left() + 698 + k * 26, body.top() + 48 - k * 12 + math.sin(now * 3 + k) * 4), 8, 8)
         p.end()
+
+
+_VERBS = {"여는": "열기", "읽는": "읽기", "누르는": "누르기", "입력하는": "입력하기", "찾아보는": "찾아보기", "찾는": "찾기",
+          "보는": "보기", "그리는": "그리기", "바꾸는": "바꾸기", "닫는": "닫기", "표시하는": "표시하기", "남기는": "남기기",
+          "쓰는": "쓰기", "지우는": "지우기", "하는": "하기", "스크롤하는": "스크롤하기", "정리하는": "정리하기",
+          "확인하는": "확인하기", "검색": "검색", "계산하는": "계산하기", "옮기는": "옮기기", "저장": "저장"}
+
+
+def _done_title(label: str) -> str:
+    """'웨일에서 'naver.com' 여는 중…' → '웨일에서 'naver.com' 열기' (끝난 일은 짧게)."""
+    t = label.rstrip("…. ").strip()
+    if t.endswith(" 중"):
+        t = t[:-2]
+        head, _, last = t.rpartition(" ")
+        t = (head + " " if head else "") + _VERBS.get(last, last)
+    return t
 
 
 # ------------------------------------------------------------------ @·/ 목록 한 줄
@@ -422,6 +440,9 @@ class ChatPanel(QWidget):
         self._render_timer = QTimer(self, singleShot=True, timeout=self._render)
 
         lay = QVBoxLayout(self)
+        from PySide6.QtWidgets import QLayout, QSizePolicy
+        lay.setSizeConstraint(QLayout.SetNoConstraint)   # 글이 길어지거나 상태 글자가 바뀌어도 창 크기는 그대로
+        self.setMinimumSize(300, 220)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
         self.face = FaceView()
@@ -444,6 +465,11 @@ class ChatPanel(QWidget):
         self.status = StatusLabel()
         self.status.setObjectName("status")
         self.status.hide()
+        from PySide6.QtWidgets import QSizePolicy
+        for wdg in (self.conv, self.status):
+            wdg.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)   # 글자가 길어도 창이 넓어지지 않게
+            wdg.setMinimumWidth(40)
+        self.status.setMinimumWidth(96)   # '말하는 중' 이 잘리지 않게
         head.addWidget(self.title)
         head.addSpacing(6)
         head.addWidget(self.conv, 0)
@@ -475,6 +501,7 @@ class ChatPanel(QWidget):
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setMinimumSize(10, 10)
         self.msgs = QWidget()
         self.msgs.setObjectName("msgs")
         self.msg_lay = QVBoxLayout(self.msgs)
@@ -528,14 +555,14 @@ class ChatPanel(QWidget):
         self.b_send = QPushButton("➤")
         self.b_send.setObjectName("send")
         self.b_send.clicked.connect(self._send)
-        for b in (b_img, self.b_mic, self.b_send):
+        self.b_mic.hide()   # 위의 퍼플루를 꾹 누르면 되니까 마이크 버튼은 안 보이게
+        for b in (b_img, self.b_send):
             b.setFixedSize(36, 36)
         b_img.setObjectName("icon")
         self.b_mic.setObjectName("icon")
         tools.addWidget(b_img)
         tools.addWidget(self.model)
         tools.addStretch(1)
-        tools.addWidget(self.b_mic)
         tools.addWidget(self.b_send)
         gl.addLayout(tools)
         bl.addWidget(self.glow)
@@ -687,35 +714,72 @@ class ChatPanel(QWidget):
         lab.setStyleSheet(f"font-size:{size};")
         return lab
 
-    def _steps(self, steps: list, open_=False):
+    def _steps(self, steps: list, open_=False, key=""):
+        """'실행됨 명령 N개 ⌄' 아래에 한 줄씩. 줄을 누르면 실제 명령·결과가 펼쳐진다. 펼친 상태는 다시 그려도 유지."""
         s = config.settings()
         if not steps or not s.get("show_steps", True):
             return None
         P = pal()
-        lines = []
-        for st in steps:
-            mark = "●" if not st.get("done", True) else ("✓" if st.get("ok") else "✗")
-            col = "#3B82F6" if not st.get("done", True) else ("#16A34A" if st.get("ok") else "#DC2626")
-            line = f"<span style='color:{col}'>{mark}</span> {html.escape(st.get('call') or st.get('label', ''))}"
-            if s.get("show_commands", True):
-                for c in (st.get("cmds") or [])[-4:]:
-                    line += f"<br><span style='color:#B45309'>&nbsp;&nbsp;$ {html.escape(c)}</span>"
-            if st.get("done", True) and st.get("result"):
-                line += f"<br><span style='color:{P['dim']}'>&nbsp;&nbsp;└ {html.escape(st['result'])}</span>"
-            lines.append(line)
-        box = QPushButton(f"⚙ 실행 {len(steps)}개  ▸")
-        box.setStyleSheet(f"text-align:left; background:{P['card']}; border:1px solid {P['line']}; border-radius:10px; padding:6px 10px;")
-        detail = self._text("<br>".join(lines), "9pt")
-        detail.setStyleSheet(f"font-family:Consolas; font-size:9pt; background:{P['card']}; border-radius:8px; padding:6px 10px;")
-        detail.setVisible(open_)
-        box.clicked.connect(lambda: (detail.setVisible(not detail.isVisible()),
-                                     box.setText(f"⚙ 실행 {len(steps)}개  {'▾' if detail.isVisible() else '▸'}")))
+        opened = getattr(self, "_open", set())
+        self._open = opened
+        running = any(not st.get("done", True) for st in steps)
+        is_open = (key in opened) or (open_ and key + "!closed" not in opened)
         w = QWidget()
         v = QVBoxLayout(w)
-        v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(2)
+        v.setContentsMargins(0, 2, 0, 2)
+        v.setSpacing(4)
+        head = QPushButton(f"{'실행 중' if running else '실행됨'} 명령 {len(steps)}개  {'⌃' if is_open else '⌄'}")
+        head.setCursor(Qt.PointingHandCursor)
+        head.setStyleSheet(f"QPushButton {{ text-align:left; background:transparent; border:none; color:{P['dim']}; padding:2px 2px; font-size:10pt; }}"
+                           f"QPushButton:hover {{ color:{P['text']}; }}")
+        v.addWidget(head)
+        box = QFrame()
+        box.setStyleSheet(f"QFrame#stepbox {{ border:1px solid {P['line']}; border-radius:12px; background:{P['bg']}; }}")
+        box.setObjectName("stepbox")
+        bl = QVBoxLayout(box)
+        bl.setContentsMargins(0, 0, 0, 0)
+        bl.setSpacing(0)
+        for n, st in enumerate(steps):
+            rk = f"{key}#{n}"
+            done, ok = st.get("done", True), st.get("ok", True)
+            title = st.get("label") or st.get("call") or ""
+            title = _done_title(title) if done else title
+            if done and st.get("result"):
+                title += f"  ·  {st['result']}"
+            mark = "" if done and ok else ("⏳ " if not done else "⚠ ")
+            row = QPushButton(f"{mark}{title}")
+            row.setCursor(Qt.PointingHandCursor)
+            border = f"border-top:1px solid {P['line']};" if n else ""
+            col = P["dim"] if ok or not done else "#DC2626"
+            row.setStyleSheet(f"QPushButton {{ text-align:left; background:transparent; border:none; {border} color:{col}; padding:9px 12px; font-size:10pt; }}"
+                              f"QPushButton:hover {{ background:{P['card']}; color:{P['text']}; }}")
+            fm = row.fontMetrics()
+            row.setText(fm.elidedText(row.text(), Qt.ElideRight, max(120, self.scroll.width() - 70)) + "  ›")
+            bl.addWidget(row)
+            detail = None
+            if rk in opened:
+                parts = [f"<b>{html.escape(st.get('call') or '')}</b>"]
+                if s.get("show_commands", True):
+                    parts += [f"<span style='color:#B45309'>$ {html.escape(c)}</span>" for c in (st.get("cmds") or [])[-6:]]
+                if st.get("result"):
+                    parts.append(f"<span style='color:{P['dim']}'>└ {html.escape(st['result'])}"
+                                 + (f" · {st['secs']}초" if st.get("secs") is not None else "") + "</span>")
+                detail = self._text("<br>".join(parts), "9pt")
+                detail.setStyleSheet(f"font-family:Consolas; font-size:9pt; background:{P['card']}; padding:8px 14px;")
+                bl.addWidget(detail)
+            row.clicked.connect(lambda _=False, k=rk: (opened.symmetric_difference_update({k}), self._render()))
+        box.setVisible(is_open)
         v.addWidget(box)
-        v.addWidget(detail)
+
+        def toggle():
+            if box.isVisible():
+                opened.discard(key)
+                opened.add(key + "!closed")
+            else:
+                opened.add(key)
+                opened.discard(key + "!closed")
+            self._render()
+        head.clicked.connect(toggle)
         return w
 
     def _render(self):
@@ -738,7 +802,8 @@ class ChatPanel(QWidget):
             if m.get("role") == "user":
                 add(self._bubble(m.get("text", "")))
             else:
-                add(self._steps([{**st, "done": True} for st in m.get("steps") or []]))
+                add(self._steps([{**st, "done": True, "label": st.get("label") or st.get("call")} for st in m.get("steps") or []],
+                                key=f"h{m.get('t', '')}"))
                 if m.get("text") and m["text"] != "(실행만 했어요)":
                     add(self._text(html.escape(m["text"], quote=False).replace("\n", "<br>")))
         for i, t in enumerate(([] if self.mini else self.past[-10:]) + [self.turn]):
@@ -747,7 +812,7 @@ class ChatPanel(QWidget):
                 add(self._bubble(t["heard"], t.get("img", "")))
             if live and self.state in ("thinking", "acting") and not t["reply"]:
                 add(self._text(f"<span style='color:{P['dim']}'>💭 생각 중…</span>"))
-            add(self._steps(t["steps"], live and self.state in ("thinking", "acting")))
+            add(self._steps(t["steps"], live and self.state in ("thinking", "acting"), key=f"t{id(t)}"))
             if t["reply"]:
                 add(self._text(html.escape(t["reply"], quote=False).replace("\n", "<br>")))
             for r in t["results"]:
