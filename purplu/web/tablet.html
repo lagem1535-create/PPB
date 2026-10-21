@@ -1096,8 +1096,8 @@ function fillSettings() {
       row("화면 테마", "", sel("theme", themes, "themesel")),
       row("💬 오른쪽 대화방 항상 보이기", "제미나이처럼 왼쪽 퍼플루, 오른쪽 대화 (이 기기만)", tog("chatAlways", true)),
       row("🖥 PC: 대화창 모양", "위아래 반반 = 위에 퍼플루(누르고 말하기) · 아래 대화", `<select id="pclayout">
-        <option value="stack" ${prefs.pcLayout !== "full" ? "selected" : ""}>⬒ 위아래 반반</option>
-        <option value="full" ${prefs.pcLayout === "full" ? "selected" : ""}>⤢ 대화창만</option></select>`),
+        <option value="stack" ${settings.pc_layout !== "full" ? "selected" : ""}>⬒ 위아래 반반</option>
+        <option value="full" ${settings.pc_layout === "full" ? "selected" : ""}>⤢ 대화창만</option></select>`),
       row("📌 PC: 대화창 오른쪽에 고정", "안 사라지고 늘 보여요", tog("pc_chat_pinned")),
       row("⬆ PC: 대화창 언제나 맨 위로", "", tog("pc_chat_on_top")),
       row("↔ PC: 고정하면 자리 차지", "작업 표시줄처럼 대화창만큼 다른 창이 작아져요 (최대화해도 안 가려요)", tog("pc_chat_dock")),
@@ -1173,7 +1173,7 @@ function fillSettings() {
   $("#cpick").onchange = e => setColor(e.target.value);
   $("#setpage").querySelectorAll("[data-w]").forEach(b => b.onclick = e => { e.preventDefault(); save({ work_indicator_color: b.dataset.w }); fillSettings(); });
   $("#chatmode").onchange = e => { setMode(e.target.value); flash(); };
-  $("#pclayout").onchange = e => { prefs.pcLayout = e.target.value; savePrefs(); if (new URLSearchParams(location.search).get("view") === "chat") setMode(e.target.value); flash(); };
+  $("#pclayout").onchange = e => save({ pc_layout: e.target.value });
   $("#setpage").querySelectorAll("[data-g]").forEach(b => b.onclick = e => { e.preventDefault(); save({ chat_glow: b.dataset.g }); applyColor(); fillSettings(); });
   $("#setpage").querySelectorAll("[data-cc]").forEach(b => b.onclick = e => { e.preventDefault(); save({ chat_color: b.dataset.cc }); applyColor(); fillSettings(); });
   $("#ccpick").onchange = e => { save({ chat_color: e.target.value }); applyColor(); fillSettings(); };

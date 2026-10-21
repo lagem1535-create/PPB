@@ -393,8 +393,8 @@ class App:
     def open_chat(self, activate: bool = True):
         """PC 대화창 (탭·웹과 같은 대화창, 같은 대화)."""
         if not getattr(self, "chat_window", None):
-            from .chatproc import ChatProcess   # 대화창은 따로 도는 프로그램 (죽어도 퍼플루는 안 꺼짐)
-            self.chat_window = ChatProcess()
+            from .chatpanel import ChatPanel   # 웹 엔진 없이 Qt로 그린 대화창 (가볍고 안 죽음)
+            self.chat_window = ChatPanel(self.brain, blob_icon(None, False))
         self.chat_window.open(activate)
 
     def open_settings(self):
@@ -430,6 +430,8 @@ class App:
             self.bubble.status.setText(self.bubble.status.text().split("  ●")[0] + f"  ● REC {t // 60:02d}:{t % 60:02d}")
 
     def on_event(self, kind: str, data):
+        if getattr(self, "chat_window", None):
+            self.chat_window.on_event(kind, data)
         b = self.bubble
         if kind == "state":
             if data == "listening":
@@ -576,7 +578,8 @@ class App:
                 if data["pc_chat_pinned"]:
                     self.open_chat(activate=False)
                 self.chat_window.apply_pin() if getattr(self, "chat_window", None) else None
-            if {"pc_chat_on_top", "pc_chat_dock"} & set(data) and getattr(self, "chat_window", None):
+            if {"pc_chat_on_top", "pc_chat_dock", "theme", "color", "chat_color", "chat_glow", "pc_layout", "live_model",
+                "show_steps", "show_commands"} & set(data) and getattr(self, "chat_window", None):
                 self.chat_window.apply_settings()
             if "theme" in data:
                 self.bubble.render()
