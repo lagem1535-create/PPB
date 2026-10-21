@@ -15,8 +15,9 @@ from ctypes import wintypes
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (QColor, QConicalGradient, QCursor, QFont, QGuiApplication, QLinearGradient, QPainter,
                            QPainterPath, QPen, QRadialGradient)
-from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QListWidget, QMenu,
-                               QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QListWidget,
+                               QListWidgetItem, QMenu, QPlainTextEdit, QPushButton, QScrollArea, QStyle,
+                               QStyledItemDelegate, QVBoxLayout, QWidget)
 
 from . import config, store
 
@@ -211,6 +212,36 @@ class FaceView(QWidget):
                 p.setBrush(QColor(255, 255, 255, int(255 * (1 - k * .3))))
                 p.drawEllipse(QPointF(body.left() + 698 + k * 26, body.top() + 48 - k * 12 + math.sin(now * 3 + k) * 4), 8, 8)
         p.end()
+
+
+# ------------------------------------------------------------------ @·/ 목록 한 줄
+class _SuggestDelegate(QStyledItemDelegate):
+    """왼쪽: 이름(길면 …로 줄임) · 오른쪽: 종류(작게, 흐리게). 가로로 넘치지 않게."""
+
+    def sizeHint(self, option, index):
+        from PySide6.QtCore import QSize
+        return QSize(option.rect.width(), 34)
+
+    def paint(self, p, option, index):
+        P = pal()
+        p.save()
+        r = option.rect
+        if option.state & QStyle.State_Selected:
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(P["bubble"]))
+            p.drawRoundedRect(QRectF(r).adjusted(2, 1, -2, -1), 8, 8)
+        kind = index.data(Qt.UserRole) or ""
+        f = QFont(option.font)
+        f.setPointSizeF(8.5)
+        p.setFont(f)
+        kw = p.fontMetrics().horizontalAdvance(kind) + 14
+        p.setPen(QColor(P["dim"]))
+        p.drawText(QRectF(r.right() - kw, r.top(), kw - 10, r.height()), Qt.AlignVCenter | Qt.AlignRight, kind)
+        p.setFont(option.font)
+        p.setPen(QColor(P["text"]))
+        name = p.fontMetrics().elidedText(index.data(Qt.DisplayRole) or "", Qt.ElideRight, r.width() - kw - 24)
+        p.drawText(QRectF(r.left() + 12, r.top(), r.width() - kw - 12, r.height()), Qt.AlignVCenter | Qt.AlignLeft, name)
+        p.restore()
 
 
 # ------------------------------------------------------------------ 머리줄 선 아이콘
@@ -453,6 +484,9 @@ class ChatPanel(QWidget):
         bl.addWidget(self.scroll, 1)
 
         self.sugg = QListWidget()
+        self.sugg.setItemDelegate(_SuggestDelegate(self.sugg))
+        self.sugg.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.sugg.setUniformItemSizes(True)
         self.sugg.setObjectName("sugg")
         self.sugg.setMaximumHeight(170)
         self.sugg.hide()
@@ -473,6 +507,8 @@ class ChatPanel(QWidget):
         self.input.setPlaceholderText("퍼플루에게 물어보기  ( / 스킬 · @ 멘션 )")
         self.input.setFixedHeight(46)
         self.input.installEventFilter(self)
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance().installEventFilter(self)   # 한글 입력기가 화살표를 먼저 가져가도 잡도록
         self.input.textChanged.connect(self._text_changed)
         gl.addWidget(self.input)
         tools = QHBoxLayout()
@@ -873,7 +909,25 @@ class ChatPanel(QWidget):
         self.attach_lbl.show()
 
     def eventFilter(self, obj, e):
-        if obj is self.input and e.type() == e.Type.KeyPress:
+        t = e.type()
+        # @·/ 목록이 떠 있으면 화살표·엔터는 어디로 가든 목록이 먼저 받는다 (한글 입력 중에도)
+        if t in (e.Type.KeyPress, e.Type.ShortcutOverride) and self.sugg.isVisible() and self.isActiveWindow():
+            k = e.key()
+            if k in (Qt.Key_Down, Qt.Key_Up, Qt.Key_PageDown, Qt.Key_PageUp, Qt.Key_Return, Qt.Key_Enter, Qt.Key_Tab, Qt.Key_Escape):
+                if t == e.Type.ShortcutOverride:
+                    e.accept()
+                    return True
+                if k in (Qt.Key_Down, Qt.Key_Up, Qt.Key_PageDown, Qt.Key_PageUp):
+                    step = {Qt.Key_Down: 1, Qt.Key_Up: -1, Qt.Key_PageDown: 5, Qt.Key_PageUp: -5}[k]
+                    r = self.sugg.currentRow() + step
+                    self.sugg.setCurrentRow(max(0, min(self.sugg.count() - 1, r)))
+                    self.sugg.scrollToItem(self.sugg.currentItem())
+                elif k == Qt.Key_Escape:
+                    self.sugg.hide()
+                else:
+                    self._pick(max(0, self.sugg.currentRow()))
+                return True
+        if obj is self.input and t == e.Type.KeyPress:
             k = e.key()
             if self.sugg.isVisible() and k in (Qt.Key_Down, Qt.Key_Up):
                 r = self.sugg.currentRow() + (1 if k == Qt.Key_Down else -1)
@@ -919,7 +973,9 @@ class ChatPanel(QWidget):
                                if q in m["label"].lower()][:30]
         self.sugg.clear()
         for it in self._items:
-            self.sugg.addItem(f"{'🧩 /' if self._kind == '/' else '@'}{it['label']}    {it['sub']}")
+            item = QListWidgetItem(f"{'/' if self._kind == '/' else '@'}{it['label']}")
+            item.setData(Qt.UserRole, it["sub"])
+            self.sugg.addItem(item)
         self.sugg.setVisible(bool(self._items))
         if self._items:
             self.sugg.setCurrentRow(0)

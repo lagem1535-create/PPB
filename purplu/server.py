@@ -141,10 +141,35 @@ def _mention_list() -> list[dict]:
     except Exception:
         pass
     try:
+        import ctypes
+        from ctypes import wintypes
+
+        import psutil
+
+        from . import browser
         from .tools.windows import _windows
-        for _, title in _windows()[:20]:
-            if "퍼플루" not in title:
-                out.append({"label": title[:40], "kind": "열린 창", "id": title})
+        connected = set(browser.names())
+        app_names = {"explorer.exe": "탐색기", "chrome.exe": "크롬", "whale.exe": "웨일", "msedge.exe": "엣지",
+                     "notepad.exe": "메모장", "calculatorapp.exe": "계산기", "code.exe": "VS Code", "kakaotalk.exe": "카카오톡",
+                     "systemsettings.exe": "설정", "claude.exe": "Claude", "winword.exe": "워드", "excel.exe": "엑셀",
+                     "powerpnt.exe": "파워포인트", "hwp.exe": "한글", "discord.exe": "디스코드", "spotify.exe": "스포티파이",
+                     "applicationframehost.exe": ""}   # 윈도우 기본 앱(설정·계산기 등)은 창 제목이 곧 앱 이름
+        browser_exe = {"chrome.exe": "크롬", "whale.exe": "웨일", "msedge.exe": "엣지"}
+        for hwnd, title in _windows()[:25]:
+            if "퍼플루" in title:
+                continue
+            pid = wintypes.DWORD()
+            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            try:
+                exe = psutil.Process(pid.value).name().lower()
+            except Exception:
+                exe = ""
+            if browser_exe.get(exe) in connected:
+                continue   # 확장이 붙은 브라우저는 창 대신 탭으로 보여 준다
+            app = app_names[exe] if exe in app_names else exe.replace(".exe", "")
+            short = title.split(" - ")[0].strip() or title   # '6학년 … - Whale' 같은 꼬리 떼기
+            label = short if short == app else (f"{app}_{short}" if app else short)
+            out.append({"label": label[:44], "kind": "열린 창", "id": title})
     except Exception:
         pass
     try:  # 브라우저마다 열린 탭: '웨일_새 메시지'처럼
