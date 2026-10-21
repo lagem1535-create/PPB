@@ -429,7 +429,9 @@ class Brain:
             shown = last_error if connected.done() else first_error
             if "1000" not in str(shown):  # 정상 종료(1000)는 알리지 않는다
                 msg = f"Gemini 연결 문제: {str(shown)[:200]}"
-                if "quota" in str(shown).lower():
+                if any(k in str(shown) for k in ("getaddrinfo", "11001", "10054", "timed out", "Name or service")):
+                    msg = "인터넷 연결이 끊겼어요. 다시 연결되면 저절로 이어져요 (와이파이를 확인해 주세요)."
+                elif "quota" in str(shown).lower():
                     msg = ("Gemini 사용 한도를 넘었어요 (무료 키의 분당·하루 한도). 잠시 뒤 다시 말해 주세요. "
                            "자주 그러면 Google AI Studio에서 결제(유료 등급)를 켜면 한도가 커져요.")
                 if msg != getattr(self, "_last_err", ("", 0))[0] or time.monotonic() - self._last_err[1] > 60:

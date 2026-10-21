@@ -15,8 +15,8 @@ from ctypes import wintypes
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (QColor, QConicalGradient, QCursor, QFont, QGuiApplication, QLinearGradient, QPainter,
                            QPainterPath, QPen, QRadialGradient)
-from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget, QPlainTextEdit,
-                               QPushButton, QScrollArea, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QListWidget, QMenu,
+                               QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget)
 
 from . import config, store
 
@@ -369,6 +369,7 @@ class ChatPanel(QWidget):
     _mentions_ready = Signal(list)
     _history_ready = Signal(list)
     _skills_ready = Signal(list)
+    _convs_ready = Signal(list)
 
     def __init__(self, brain, icon=None, open_settings=None):
         super().__init__(None, Qt.Window)
@@ -403,10 +404,17 @@ class ChatPanel(QWidget):
         head = QHBoxLayout()
         self.title = QLabel("퍼플루")
         self.title.setObjectName("title")
+        self.conv = QPushButton("새 대화 ▾")
+        self.conv.setObjectName("conv")
+        self.conv.setCursor(Qt.PointingHandCursor)
+        self.conv.setToolTip("대화 바꾸기 · 이름 바꾸기")
+        self.conv.clicked.connect(self._conv_menu)
         self.status = StatusLabel()
         self.status.setObjectName("status")
+        self.status.hide()
         head.addWidget(self.title)
         head.addSpacing(6)
+        head.addWidget(self.conv, 0)
         head.addWidget(self.status)
         head.addStretch(1)
         btn_new = IconButton("new", "새 대화")
@@ -498,6 +506,7 @@ class ChatPanel(QWidget):
         self._mentions_ready.connect(self._got_mentions)
         self._history_ready.connect(self._got_history)
         self._skills_ready.connect(self._got_skills)
+        self._convs_ready.connect(self._got_convs)
         self.apply_theme()
         self.apply_on_top()
         self.set_state(getattr(brain, "last_state", "idle"))
@@ -515,6 +524,12 @@ class ChatPanel(QWidget):
             QLabel#title {{ color:{c}; font-weight:700; font-size:12pt; }}
             QFrame#sep {{ background:{P['line']}; }}
             QLabel#status {{ color:{P['dim']}; }}
+            QPushButton#conv {{ background:transparent; border:none; color:{P['dim']}; text-align:left; padding:2px 6px; border-radius:8px; max-width:230px; }}
+            QPushButton#conv:hover {{ background:{P['bubble']}; color:{P['text']}; }}
+            QMenu {{ background:{P['bg']}; color:{P['text']}; border:1px solid {P['line']}; border-radius:10px; padding:6px; }}
+            QMenu::item {{ padding:7px 18px; border-radius:6px; }}
+            QMenu::item:selected {{ background:{P['bubble']}; }}
+            QMenu::separator {{ height:1px; background:{P['line']}; margin:4px 8px; }}
             QPushButton#icon {{ background:transparent; border:none; border-radius:17px; font-size:13pt; }}
             QPushButton#icon:hover {{ background:{P['bubble']}; }}
             QPushButton#send {{ background:{cc}; color:{on_color(cc)}; border:none; border-radius:18px; font-size:13pt; }}
@@ -558,8 +573,11 @@ class ChatPanel(QWidget):
             self.turn = self._new_turn()
         self.state = s
         self.face.set_state(s)
+        active = s in ("listening", "thinking", "acting", "speaking")
         self.status.setText(STATUS.get(s, ""))
         self.status.set_flow(s == "listening")
+        self.status.setVisible(active)          # 대화하는 동안엔 '듣는 중…' 같은 상태, 평소엔 대화 제목만
+        self.conv.setVisible(not active)
         self.glow.fast = s in ("listening", "thinking", "acting")
         self._schedule()
 
@@ -594,6 +612,9 @@ class ChatPanel(QWidget):
             t["results"].append(f"🙉 {html.escape(str(data))}")
         elif kind == "conversation":   # 다른 대화로 바뀜
             self.load_history()
+            return
+        elif kind == "conversations_changed":
+            self._load_convs()
             return
         else:
             return
@@ -700,7 +721,8 @@ class ChatPanel(QWidget):
             for ex in EXAMPLES:   # 누르면 바로 보내기
                 b = QPushButton(ex)
                 b.setCursor(Qt.PointingHandCursor)
-                b.setStyleSheet(f"text-align:left; background:{P['card']}; border:1px solid {P['line']}; border-radius:14px; padding:10px 16px; color:{P['text']};")
+                b.setStyleSheet(f"QPushButton {{ text-align:left; background:{P['card']}; border:1px solid {P['line']}; border-radius:14px; padding:10px 16px; color:{P['text']}; }}"
+                                f"QPushButton:hover {{ background:{self._cc}; color:{on_color(self._cc)}; border-color:{self._cc}; }}")   # 올리면 내 색
                 b.clicked.connect(lambda _=False, t=ex: (self.input.setPlainText(t), self._send()))
                 add(b)
         if at_bottom or self.state != "idle" or not getattr(self, "_scrolled_once", False):
@@ -708,10 +730,69 @@ class ChatPanel(QWidget):
             for ms in (30, 120, 300):   # 새 말풍선 크기가 정해진 뒤 맨 아래로
                 QTimer.singleShot(ms, lambda: bar.setValue(bar.maximum()))
 
+    # ---------------- 대화 제목 · 바꾸기 · 이름 바꾸기 ----------------
+    def _show_title(self, title: str):
+        t = title or "새 대화"
+        fm = self.conv.fontMetrics()
+        self.conv.setText(fm.elidedText(t, Qt.ElideRight, 165) + " ▾")
+        self.conv.setToolTip(f"{t}\n누르면 대화 바꾸기 · 이름 바꾸기")
+
+    def _load_convs(self):
+        def work():
+            try:
+                rows = store.list_conversations()
+            except Exception:
+                rows = []
+            self._convs_ready.emit(rows)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _got_convs(self, rows):
+        self.convs = rows
+        cur = config.settings().get("current_conversation") or ""
+        self._show_title(next((c.get("title") for c in rows if c["id"] == cur), "새 대화"))
+
+    def _conv_menu(self):
+        m = QMenu(self)
+        cur = config.settings().get("current_conversation") or ""
+        m.addAction("＋  새 대화", self._new_chat)
+        m.addAction("✎  이 대화 이름 바꾸기", self._rename_conv)
+        m.addSeparator()
+        for c in getattr(self, "convs", [])[:15]:
+            title = (c.get("title") or "새 대화")[:34]
+            act = m.addAction(("●  " if c["id"] == cur else "     ") + title)
+            act.triggered.connect(lambda _=False, cid=c["id"]: self._switch_conv(cid))
+        if not getattr(self, "convs", None):
+            m.addAction("(대화를 불러오는 중…)").setEnabled(False)
+            self._load_convs()
+        m.exec(self.conv.mapToGlobal(self.conv.rect().bottomLeft()))
+
+    def _switch_conv(self, cid: str):
+        if cid == config.settings().get("current_conversation"):
+            return
+        self.brain.select_conversation(cid)
+        self.past, self.turn = [], self._new_turn()
+        self._show_title(next((c.get("title") for c in getattr(self, "convs", []) if c["id"] == cid), ""))
+        QTimer.singleShot(400, self.load_history)   # 바뀐 대화의 지난 말 불러오기
+
+    def _rename_conv(self):
+        cid = config.settings().get("current_conversation") or ""
+        if not cid:
+            return
+        old = next((c.get("title") for c in getattr(self, "convs", []) if c["id"] == cid), "")
+        title, ok = QInputDialog.getText(self, "대화 이름 바꾸기", "새 이름:", text=old)
+        if ok and title.strip():
+            threading.Thread(target=lambda: store.rename_conversation(cid, title.strip()), daemon=True).start()
+            self._show_title(title.strip())
+            for c in getattr(self, "convs", []):
+                if c["id"] == cid:
+                    c["title"] = title.strip()
+
     def _new_chat(self):
         self._hist_gen = getattr(self, "_hist_gen", 0) + 1   # 불러오던 옛 기록은 무시
         self.brain.new_conversation()
         self.history, self.past, self.turn = [], [], self._new_turn()
+        self._show_title("새 대화")
+        QTimer.singleShot(1500, self._load_convs)
         self._render()
         self.input.setFocus()
 
@@ -749,6 +830,7 @@ class ChatPanel(QWidget):
         gen, rows = packed
         if gen != getattr(self, "_hist_gen", 0):   # 그사이 새 대화를 시작했으면 옛 기록은 버린다
             return
+        self._load_convs()
         self.history = rows
         self.past = []
         self._render()
@@ -796,6 +878,7 @@ class ChatPanel(QWidget):
             if self.sugg.isVisible() and k in (Qt.Key_Down, Qt.Key_Up):
                 r = self.sugg.currentRow() + (1 if k == Qt.Key_Down else -1)
                 self.sugg.setCurrentRow(max(0, min(self.sugg.count() - 1, r)))
+                self.sugg.scrollToItem(self.sugg.currentItem())   # 고른 줄이 보이게 따라 내려가기
                 return True
             if self.sugg.isVisible() and k in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Tab):
                 self._pick(max(0, self.sugg.currentRow()))

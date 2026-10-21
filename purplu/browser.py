@@ -26,7 +26,7 @@ def connected() -> bool:
 
 
 def names() -> list[str]:
-    return [info["name"] for _, info in _alive()]
+    return list(dict.fromkeys(info["name"] for _, info in _alive()))   # 같은 브라우저가 두 번 붙어도 한 번만
 
 
 _prefer = {"name": "", "until": 0.0}
@@ -53,11 +53,21 @@ def current_name() -> str:
     return info["name"] if info else ""
 
 
-async def handle(ws, loop):
+def _name_from_ua(ua: str) -> str:
+    if "Whale/" in ua:
+        return "웨일"
+    if "Edg/" in ua:
+        return "엣지"
+    if "OPR/" in ua:
+        return "오페라"
+    return "크롬" if "Chrome/" in ua else "브라우저"
+
+
+async def handle(ws, loop, user_agent: str = ""):
     """서버가 /ext 웹소켓을 넘겨준다. 끊길 때까지 응답을 받아 기다리는 도구에 전달."""
     global _loop
     _loop = loop
-    _conns[ws] = {"name": "브라우저", "focus": time.monotonic()}
+    _conns[ws] = {"name": _name_from_ua(user_agent), "focus": time.monotonic()}   # 이름은 연결 정보(User-Agent)에서 바로
     await _send_settings(ws)
     ping = loop.create_task(_keepalive(ws))
     try:
@@ -116,7 +126,7 @@ async def _send(ws, cmd, args, timeout):
 
 def call_to(name: str, cmd: str, args: dict | None = None, timeout: float = 6) -> dict:
     """특정 브라우저(크롬·웨일…)의 확장에 보내기 (예: 그 브라우저의 탭 목록)."""
-    for ws, info in _alive():
+    for ws, info in sorted(_alive(), key=lambda x: -x[1]["focus"]):
         if info["name"] == name:
             reply = asyncio.run_coroutine_threadsafe(_send(ws, cmd, args or {}, timeout), _loop).result(timeout + 2)
             if not reply.get("ok"):

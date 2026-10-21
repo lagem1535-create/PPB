@@ -5,10 +5,10 @@
 import io
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPixmap
+from PySide6.QtCore import QRectF, Qt, QTimer
+from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-                               QListWidget, QListWidgetItem, QMessageBox, QPushButton, QSlider, QTabWidget,
+                               QFrame, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSlider, QTabWidget,
                                QPlainTextEdit, QTextBrowser, QVBoxLayout, QWidget)
 
 from . import config, store
@@ -27,6 +27,12 @@ QListWidget, QTextBrowser, QComboBox, QLineEdit, QPlainTextEdit { background:#2E
 QListWidget::item { padding:8px; border-radius:6px; }
 QListWidget::item:selected { background:#6D28D9; }
 QCheckBox::indicator { width:18px; height:18px; }
+QFrame#card { background:#241640; border-radius:14px; }
+QFrame#srow { background:transparent; border-bottom:1px solid #2E1F4F; }
+QLabel#cardtitle { color:#A1A1AA; font-weight:700; font-size:9.5pt; margin:4px 2px 0; }
+QFrame#card QLabel, QFrame#srow QLabel { background:transparent; }
+QLabel#rtitle { font-weight:600; } QLabel#rdesc { color:#A1A1AA; font-size:9pt; } QLabel#saved { color:#86EFAC; }
+QWidget#setpage { background:#1E1235; }
 """
 STYLE_LIGHT = """
 QWidget { background:#FAF8FF; color:#1F1235; font-family:'Malgun Gothic'; font-size:10pt; }
@@ -41,6 +47,12 @@ QListWidget, QTextBrowser, QComboBox, QLineEdit, QPlainTextEdit { background:whi
 QListWidget::item { padding:8px; border-radius:6px; }
 QListWidget::item:selected { background:#DDD6FE; color:#1F1235; }
 QCheckBox::indicator { width:18px; height:18px; }
+QFrame#card { background:#F3F0FF; border-radius:14px; }
+QFrame#srow { background:transparent; border-bottom:1px solid #E9E3FB; }
+QLabel#cardtitle { color:#71717A; font-weight:700; font-size:9.5pt; margin:4px 2px 0; }
+QFrame#card QLabel, QFrame#srow QLabel { background:transparent; }
+QLabel#rtitle { font-weight:600; } QLabel#rdesc { color:#71717A; font-size:9pt; } QLabel#saved { color:#15803D; }
+QWidget#setpage { background:#FAF8FF; }
 """
 
 
@@ -53,6 +65,29 @@ def _when(ms) -> str:
         return datetime.fromtimestamp(ms / 1000).strftime("%m/%d %H:%M")
     except (TypeError, ValueError, OSError):
         return ""
+
+
+class Toggle(QCheckBox):
+    """동그란 손잡이가 움직이는 켜기/끄기 스위치."""
+
+    def __init__(self):
+        super().__init__()
+        self.setFixedSize(46, 26)
+        self.setCursor(Qt.PointingHandCursor)
+
+    def hitButton(self, pos):
+        return self.rect().contains(pos)
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        on = self.isChecked()
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(config.settings().get("color") or "#8B5CF6") if on else QColor("#71717A"))
+        p.drawRoundedRect(QRectF(0, 0, 46, 26), 13, 13)
+        p.setBrush(QColor("white"))
+        p.drawEllipse(QRectF(23 if on else 3, 3, 20, 20))
+        p.end()
 
 
 class SettingsWindow(QWidget):
@@ -423,26 +458,97 @@ class SettingsWindow(QWidget):
     # ---- 설정 탭 ----
 
     def _settings_tab(self):
-        w = QWidget()
-        form = QFormLayout(w)
-        form.setLabelAlignment(Qt.AlignRight)
-        form.setSpacing(10)
+        """묶음 카드 + 스위치. 바꾸면 바로 저장돼요 (저장 버튼 없음)."""
+        outer = QWidget()
+        ol = QVBoxLayout(outer)
+        ol.setContentsMargins(0, 0, 0, 0)
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
+        page = QWidget()
+        page.setObjectName("setpage")
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(16, 12, 16, 16)
+        lay.setSpacing(14)
+        area.setWidget(page)
+        ol.addWidget(area)
+        self.checks, self.combos = {}, {}
+
+        def card(title):
+            box = QFrame()
+            box.setObjectName("card")
+            v = QVBoxLayout(box)
+            v.setContentsMargins(0, 2, 0, 2)
+            v.setSpacing(0)
+            head = QLabel(title)
+            head.setObjectName("cardtitle")
+            lay.addWidget(head)
+            lay.addWidget(box)
+            return v
+
+        def row(v, title, desc, control, wide=False):
+            r = QFrame()
+            r.setObjectName("srow")
+            h = QVBoxLayout(r) if wide else QHBoxLayout(r)
+            h.setContentsMargins(14, 10, 14, 10)
+            t = QVBoxLayout()
+            t.setSpacing(1)
+            a = QLabel(title)
+            a.setObjectName("rtitle")
+            t.addWidget(a)
+            if desc:
+                d = QLabel(desc)
+                d.setObjectName("rdesc")
+                d.setWordWrap(True)
+                t.addWidget(d)
+            h.addLayout(t, 1)
+            if isinstance(control, QHBoxLayout):
+                h.addLayout(control)
+            else:
+                h.addWidget(control, 0 if not wide else 1)
+            v.addWidget(r)
+
+        def toggle(v, key, title, desc=""):
+            sw = Toggle()
+            self.checks[key] = sw
+            sw.toggled.connect(lambda on, k=key: self._toggle_saved(k, on))
+            row(v, title, desc, sw)
+
+        def combo(key, choices):
+            cb = QComboBox()
+            cb.addItems(choices)
+            cb.activated.connect(lambda _=None, k=key, c=cb: (config.save_settings(**{k: c.currentText()}), self._flash()))
+            self.combos[key] = cb
+            return cb
+
+        # ---- 기본 ----
+        v = card("기본")
         key_row = QHBoxLayout()
         self.key_label = QLabel()
         btn_key = QPushButton("키 입력/변경")
         btn_key.clicked.connect(self._ask_key)
-        key_row.addWidget(self.key_label, 1)
+        key_row.addWidget(self.key_label)
         key_row.addWidget(btn_key)
-        form.addRow("Gemini 키", key_row)
+        row(v, "Gemini 키", "이 PC의 Windows 자격 증명에만 저장돼요", key_row)
+        row(v, "대화 모델", "", combo("live_model", config.CHOICES["live_model"]))
+        row(v, "생각 깊이", "생각하는 모델일 때만", combo("thinking_level", config.CHOICES["thinking_level"]))
+        row(v, "누르고 말하기 키", "다시 켜야 바뀌어요", combo("talk_key", config.CHOICES["talk_key"]))
+        toggle(v, "speak", "목소리로 대답")
 
-        # 퍼플루 색: 누르면 바로 바뀌고 Firebase에 저장 (탭도 같이 바뀜)
+        # ---- 화면 ----
+        v = card("화면")
+        self.theme_box = QComboBox()
+        for key, text in config.THEMES.items():
+            self.theme_box.addItem(text, key)
+        self.theme_box.activated.connect(lambda _=None: (config.save_settings(theme=self.theme_box.currentData()), self._flash()))
+        row(v, "테마", "", self.theme_box)
         color_row = QHBoxLayout()
         color_row.setSpacing(6)
         self.swatches = {}
         for name, hexv in config.COLORS.items():
             b = QPushButton()
             b.setToolTip(name)
-            b.setFixedSize(30, 30)
+            b.setFixedSize(26, 26)
             b.clicked.connect(lambda _=False, h=hexv: self._set_color(h))
             self.swatches[hexv.lower()] = b
             color_row.addWidget(b)
@@ -450,92 +556,99 @@ class SettingsWindow(QWidget):
         pick.clicked.connect(self._pick_color)
         color_row.addWidget(pick)
         color_row.addStretch(1)
-        form.addRow("퍼플루 색", color_row)
-
-        # 작업 중 표시 색 (비우면 퍼플루 색)
+        row(v, "퍼플루 색", "", color_row, wide=True)
         work_row = QHBoxLayout()
-        work_row.setSpacing(6)
         self.work_btn = QPushButton(objectName="plain")
         self.work_btn.clicked.connect(self._pick_work_color)
         same = QPushButton("퍼플루 색과 같게", objectName="plain")
         same.clicked.connect(lambda: (config.save_settings(work_indicator_color=""), self._paint_work_btn()))
         work_row.addWidget(self.work_btn)
         work_row.addWidget(same)
-        work_row.addStretch(1)
-        form.addRow("💜 작업 중 표시 색", work_row)
+        row(v, "작업 중 표시 색", "", work_row)
+        toggle(v, "work_indicator", "작업 중 표시", "퍼플루가 쓰는 앱·브라우저 둘레가 빛나요")
+        toggle(v, "show_thoughts", "생각 내용 보여주기", "생각하는 모델에서 나와요")
+        toggle(v, "show_steps", "실행하는 명령 보여주기", "open_app(\"계산기\") 처럼")
+        toggle(v, "show_commands", "실제 명령어도 보여주기", "파이썬 함수·프로그램·HTTP")
 
-        self.combos = {}
-        for key, label in (("live_model", "대화 모델"), ("thinking_level", "생각 깊이"),
-                           ("talk_key", "누르고 말하기 키")):
-            cb = QComboBox()
-            cb.addItems(config.CHOICES[key])
-            self.combos[key] = cb
-            form.addRow(label, cb)
-        self.checks = {}
-        for key, label in (("speak", "목소리로 대답"),
-                           ("show_thoughts", "💭 생각 내용 보여주기 (생각하는 모델에서 나와요)"),
-                           ("show_steps", "⚙ 실행하는 명령과 결과 보여주기 (Claude처럼)"),
-                           ("show_commands", "$ 실제로 실행하는 명령어도 보여주기 (파이썬 함수·프로그램·HTTP)"),
-                           ("shell_enabled", "⌨ PC 명령어(PowerShell·cmd) 실행 허용 (확인 방식은 파이썬과 같아요)"),
-                           ("python_enabled", "🐍 파이썬 코드 실행 허용 (작업 폴더: D:\\bot\\data\\python)"),
+        # ---- PC 대화창 ----
+        v = card("PC 대화창")
+        toggle(v, "pc_chat_window", "말풍선 대신 대화창", "말하면 오른쪽 아래에 글로도 쓸 수 있는 대화창이 떠요")
+        toggle(v, "pc_chat_pinned", "오른쪽에 고정", "안 사라지고 늘 보여요")
+        toggle(v, "pc_chat_dock", "고정하면 자리 차지", "작업 표시줄처럼 대화창만큼 다른 창이 작아져요")
+        toggle(v, "pc_chat_on_top", "언제나 맨 위로")
+        self.hide_box = QComboBox()
+        for secs, text in ((0, "안 사라짐"), (5, "5초 뒤"), (10, "10초 뒤"), (15, "15초 뒤"), (30, "30초 뒤"), (60, "1분 뒤")):
+            self.hide_box.addItem(text, secs)
+        self.hide_box.activated.connect(lambda _=None: (config.save_settings(pc_chat_autohide=self.hide_box.currentData()), self._flash()))
+        row(v, "대답 뒤 사라지기", "", self.hide_box)
+        toggle(v, "mention_open_only", "@ 목록에 열린 것만", "지금 열린 탭·창만 (끄면 앱·메모도)")
 
-                           ("computer_control", "컴퓨터 조작 허용 (클릭·타이핑)"),
-                           ("cursor_visible", "퍼플루 커서 쓰기 (가리키기·클릭할 때 나타남)"),
-                           ("cursor_always", "커서 항상 보이기 (끄면 필요할 때만)"),
-                           ("cursor_follow", "내 마우스 따라다니기"),
-                           ("pc_chat_window", "💬 말풍선 대신 대화창 (오른쪽 아래, 글로도 입력)"),
-                           ("pc_chat_pinned", "📌 PC 대화창을 오른쪽에 고정 (안 사라짐)"),
-                           ("pc_chat_on_top", "⬆ PC 대화창 언제나 맨 위로"),
-                           ("mention_open_only", "@ 목록에 지금 열린 탭·창만 (끄면 앱·메모도)"),
-                           ("pc_chat_dock", "↔ 고정하면 대화창만큼 자리 차지 (다른 창이 그만큼 작아져요)"),
-                           ("work_indicator", "💜 작업 중 표시 (퍼플루가 쓰는 앱·브라우저 둘레가 빛나요)"),
-                           ("browser_real_input", "🌐 브라우저: 진짜 마우스·키보드로 조작 (확장, 위에 디버깅 알림이 떠요)"),
-                           ("browser_highlights", "🖍 브라우저: 사이트 하이라이트·노트 (새로고침해도 유지)")):
-            ch = QCheckBox(label)
-            self.checks[key] = ch
-            form.addRow("", ch)
+        # ---- 보안 · 실행 ----
+        v = card("보안 · 실행")
         self.sec_level = QComboBox()
         for key, text in config.SECURITY_LEVELS.items():
             self.sec_level.addItem(text, key)
         self.sec_level.activated.connect(self._security_changed)
-        form.addRow("🔒 보안 수준", self.sec_level)
-        self.theme_box = QComboBox()
-        for key, text in config.THEMES.items():
-            self.theme_box.addItem(text, key)
-        self.theme_box.activated.connect(lambda _=None: config.save_settings(theme=self.theme_box.currentData()))
-        form.addRow("🎨 화면 테마", self.theme_box)
-        self.pages_edit = QLineEdit(config.settings().get("pages_url", ""))
-        self.pages_edit.setPlaceholderText("https://내아이디.github.io/PPB/  (GitHub Pages로 퍼플루 열 때)")
-        self.pages_edit.editingFinished.connect(
-            lambda: config.save_settings(pages_url=self.pages_edit.text().strip()))
-        form.addRow("🌐 웹 주소", self.pages_edit)
-        self.hide_box = QComboBox()
-        for secs, text in ((0, "안 사라짐"), (5, "5초 뒤"), (10, "10초 뒤"), (15, "15초 뒤"), (30, "30초 뒤"), (60, "1분 뒤")):
-            self.hide_box.addItem(text, secs)
-        self.hide_box.setCurrentIndex(max(0, self.hide_box.findData(int(config.settings().get("pc_chat_autohide", 15)))))
-        self.hide_box.activated.connect(lambda _=None: config.save_settings(pc_chat_autohide=self.hide_box.currentData()))
-        form.addRow("💬 대화창 사라지기", self.hide_box)
+        row(v, "보안 수준", "낮추면 경고가 떠요", self.sec_level, wide=True)
+        toggle(v, "computer_control", "컴퓨터 조작 허용", "클릭·입력·키 누르기")
+        toggle(v, "shell_enabled", "PC 명령어 실행 허용", "PowerShell·cmd (끄기·설정·네트워크 등)")
+        toggle(v, "python_enabled", "파이썬 실행 허용", "작업 폴더: D:\\bot\\data\\python")
         self.py_mode = QComboBox()
         for key, text in config.PYTHON_APPROVAL.items():
             self.py_mode.addItem(text, key)
         self.py_mode.activated.connect(self._python_mode_changed)
-        form.addRow("🐍 실행 전 확인", self.py_mode)
+        row(v, "실행 전 확인", "파이썬·명령어 둘 다", self.py_mode, wide=True)
+
+        # ---- 커서 · 브라우저 ----
+        v = card("커서 · 브라우저")
+        toggle(v, "cursor_visible", "퍼플루 커서 쓰기", "가리키기·클릭할 때 나타나요")
+        toggle(v, "cursor_always", "커서 항상 보이기", "끄면 필요할 때만")
+        toggle(v, "cursor_follow", "내 마우스 따라다니기")
         self.size_slider = QSlider(Qt.Horizontal, minimum=40, maximum=120)
-        form.addRow("커서 크기", self.size_slider)
-        save = QPushButton("저장 (Firebase)")
-        save.clicked.connect(self._save)
+        self.size_slider.setFixedWidth(160)
+        self.size_slider.sliderReleased.connect(lambda: (config.save_settings(cursor_size=self.size_slider.value()), self._flash()))
+        row(v, "커서 크기", "", self.size_slider)
+        toggle(v, "browser_real_input", "브라우저: 진짜 마우스·키보드", "확장이 디버깅 알림을 띄워요")
+        toggle(v, "browser_highlights", "브라우저: 하이라이트·노트", "새로고침해도 남아요")
+
+        # ---- 연결 ----
+        v = card("연결")
+        self.pages_edit = QLineEdit(config.settings().get("pages_url", ""))
+        self.pages_edit.setPlaceholderText("https://내아이디.github.io/PPB/")
+        self.pages_edit.editingFinished.connect(lambda: (config.save_settings(pages_url=self.pages_edit.text().strip()), self._flash()))
+        row(v, "웹 주소 (GitHub Pages)", "이 주소에서 연 화면만 PC에 연결돼요", self.pages_edit, wide=True)
+
         self.saved_label = QLabel()
-        row = QHBoxLayout()
-        row.addWidget(save)
-        row.addWidget(self.saved_label, 1)
-        form.addRow("", row)
-        note = QLabel("설정은 Firebase에 저장돼서 갤럭시 탭과 같이 써요. Gemini 키는 이 PC에만 저장돼요.\n"
-                      "누르고 말하기 키는 다시 켜야 바뀌어요. 비상정지: Ctrl+Alt+S")
-        note.setStyleSheet("color:#A1A1AA; font-size:9pt;")
-        form.addRow("", note)
-        return w
+        self.saved_label.setObjectName("saved")
+        lay.addWidget(self.saved_label)
+        note = QLabel("바꾸면 바로 저장돼서 갤럭시 탭과 같이 써요. 비상정지: Ctrl+Alt+S")
+        note.setObjectName("rdesc")
+        lay.addWidget(note)
+        lay.addStretch(1)
+        return outer
+
+    def _toggle_saved(self, key, on):
+        if getattr(self, "_filling", False):
+            return
+        if key == "cursor_always":
+            config.save_settings(cursor_mode="always" if on else "auto")
+        else:
+            config.save_settings(**{key: bool(on)})
+        self._flash()
+
+    def _flash(self, text="✓ 저장했어요"):
+        if hasattr(self, "saved_label"):
+            self.saved_label.setText(text)
+            QTimer.singleShot(1500, lambda: self.saved_label.setText(""))
 
     def _fill_settings(self):
+        self._filling = True
+        try:
+            self._fill_settings_inner()
+        finally:
+            self._filling = False
+
+    def _fill_settings_inner(self):
         s = config.settings()
         self.key_label.setText("✓ 저장됨" if config.get_api_key() else "⚠ 아직 없어요")
         for key, cb in self.combos.items():
@@ -549,6 +662,7 @@ class SettingsWindow(QWidget):
         self._paint_work_btn()
         self.sec_level.setCurrentIndex(max(0, self.sec_level.findData(s.get("security_level", "strict"))))
         self.theme_box.setCurrentIndex(max(0, self.theme_box.findData(s.get("theme", "dark"))))
+        self.hide_box.setCurrentIndex(max(0, self.hide_box.findData(int(s.get("pc_chat_autohide", 15) or 0))))
         self.saved_label.setText("")
         self._mark_voice()
         self._paint_swatches()
@@ -591,6 +705,13 @@ class SettingsWindow(QWidget):
         self.saved_label.setText("✓ 실행 전 확인 방식을 바꿨어요")
 
     def sync_fields(self, changes: dict):
+        self._filling = True   # 다른 기기에서 바뀐 걸 보여 줄 땐 다시 저장하지 않게
+        try:
+            self._sync_fields_inner(changes)
+        finally:
+            self._filling = False
+
+    def _sync_fields_inner(self, changes: dict):
         """다른 기기에서 바뀐 설정을 열려 있는 창에 반영."""
         for k, v in changes.items():
             if k in self.combos:

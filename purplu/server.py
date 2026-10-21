@@ -159,6 +159,13 @@ def _mention_list() -> list[dict]:
                                "id": t["tab_id"], "url": t.get("url", ""), "browser": bname})
     except Exception:
         pass
+    seen, uniq = set(), []
+    for m in out:   # 같은 탭·창이 두 번 나오지 않게
+        key = (m["kind"], m["label"])
+        if key not in seen:
+            seen.add(key)
+            uniq.append(m)
+    out = uniq
     if config.settings().get("mention_open_only", True):   # 설정: 지금 열린 탭·창만
         return [m for m in out if m["kind"] in ("열린 탭", "열린 창")] + later
     try:
@@ -405,7 +412,7 @@ class TabletServer:
         ws = web.WebSocketResponse(heartbeat=25, max_msg_size=8 * 1024 * 1024)
         await ws.prepare(request)
         from . import browser
-        await browser.handle(ws, self.loop)
+        await browser.handle(ws, self.loop, request.headers.get("User-Agent", ""))
         return ws
 
     # ---- 탭 → PC ----
