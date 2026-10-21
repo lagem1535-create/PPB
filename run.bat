@@ -39,7 +39,9 @@ if not exist data\firebase_url.txt (
 )
 
 rem ---- 4. 이미 켜져 있으면 끄고 새로 켜기 (업데이트한 코드가 적용되게) ----
+wmic process where "CommandLine like '%%purplu.keeper%%'" call terminate >nul 2>&1
 wmic process where "name='pythonw.exe' and CommandLine like '%%-m purplu%%'" call terminate >nul 2>&1
+if exist data\quit.flag del data\quit.flag
 timeout /t 1 >nul
 
 rem ---- 5. 켜기 ----

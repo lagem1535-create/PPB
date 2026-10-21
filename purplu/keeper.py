@@ -26,8 +26,24 @@ def log(msg: str):
 def main():
     DATA.mkdir(parents=True, exist_ok=True)
     FLAG.unlink(missing_ok=True)
+    import win32event, win32api, winerror   # 지킴이도 하나만
+    globals()["_m"] = win32event.CreateMutex(None, False, "Purplu.Keeper")
+    if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
+        return
     crashes = []
+    import win32con
     while True:
+        # 퍼플루가 이미 켜져 있으면(지킴이 없이 켰을 때 등) 새로 켜지 말고, 꺼질 때까지 가볍게 지켜본다
+        while True:
+            try:
+                h = win32event.OpenMutex(win32con.SYNCHRONIZE, False, "Purplu.SingleInstance")
+                win32api.CloseHandle(h)
+            except Exception:
+                break
+            if FLAG.exists():
+                FLAG.unlink(missing_ok=True)
+                return
+            time.sleep(3)
         started = time.time()
         p = subprocess.Popen([sys.executable, "-m", "purplu"], cwd=str(DATA.parent), env={**os.environ, "PURPLU_KEEPER": "1"})
         code = p.wait()
@@ -35,8 +51,9 @@ def main():
             FLAG.unlink(missing_ok=True)
             log("사용자가 종료해서 지킴이도 끝")
             return
-        if code == ALREADY_RUNNING:
-            return
+        if code == ALREADY_RUNNING:   # 퍼플루가 이미 켜져 있음 → 그게 꺼질 때까지 지켜보다가, 갑자기 꺼지면 다시 켠다
+            time.sleep(3)
+            continue
         crashes = [t for t in crashes if time.time() - t < 120] + [time.time()]
         wait = 60 if len(crashes) >= 5 else 2  # 2분에 5번 넘게 죽으면 1분 쉬었다가
         log(f"퍼플루가 꺼졌어요 (코드 {code}, {time.time() - started:.0f}초 동안 켜져 있었음) → {wait}초 뒤 다시 켜요")
