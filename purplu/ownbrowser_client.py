@@ -49,6 +49,8 @@ def start():
         args = [sys.executable, "-m", "purplu.ownbrowser"]
         if config.settings().get("theme") != "light":
             args.append("--dark")
+        st = config.settings()
+        args.append("--color=" + (st.get("chat_color") or st.get("color") or "#8B5CF6"))
         hwnd[0] = 0
         _proc = subprocess.Popen(args, cwd=str(ROOT), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                  stderr=subprocess.DEVNULL, text=True, encoding="utf-8", bufsize=1,
