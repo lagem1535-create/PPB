@@ -394,7 +394,7 @@ class App:
         """PC 대화창 (탭·웹과 같은 대화창, 같은 대화)."""
         if not getattr(self, "chat_window", None):
             from .chatpanel import ChatPanel   # 웹 엔진 없이 Qt로 그린 대화창 (가볍고 안 죽음)
-            self.chat_window = ChatPanel(self.brain, blob_icon(None, False))
+            self.chat_window = ChatPanel(self.brain, blob_icon(None, False), open_settings=self.open_settings)
         self.chat_window.open(activate)
 
     def open_settings(self):

@@ -147,14 +147,20 @@ def _mention_list() -> list[dict]:
                 out.append({"label": title[:40], "kind": "열린 창", "id": title})
     except Exception:
         pass
-    try:
+    try:  # 브라우저마다 열린 탭: '웨일_새 메시지'처럼
         from . import browser
-        if browser.connected():
-            for t in browser.call("tabs", timeout=4)[:20]:
-                out.insert(0, {"label": (t.get("title") or t.get("url") or "")[:40], "kind": "열린 탭", "id": t["tab_id"],
-                               "url": t.get("url", "")})
+        for bname in browser.names():
+            try:
+                tabs = browser.call_to(bname, "tabs", timeout=4)
+            except Exception:
+                continue
+            for t in tabs[:20]:
+                out.insert(0, {"label": f"{bname}_{(t.get('title') or t.get('url') or '')[:36]}", "kind": "열린 탭",
+                               "id": t["tab_id"], "url": t.get("url", ""), "browser": bname})
     except Exception:
         pass
+    if config.settings().get("mention_open_only", True):   # 설정: 지금 열린 탭·창만
+        return [m for m in out if m["kind"] in ("열린 탭", "열린 창")] + later
     try:
         from .tools.apps import all_apps
         out += later
@@ -218,6 +224,9 @@ def _expand_chat(text: str, mentions: list) -> str:
         elif m.get("kind") == "앱":
             notes.append(f"@{label} = PC 앱 '{m.get('id')}' → open_app으로 열고 조작")
         elif m.get("kind") in ("탭", "열린 탭"):
+            if m.get("browser"):
+                from . import browser
+                browser.prefer(m["browser"])   # 그 탭이 있는 브라우저로
             notes.append(f"@{label} = 브라우저 탭 (tab_id {m.get('id')}, {m.get('url', '')}) → browser_switch_tab 후 browser_read")
         elif m.get("kind") in ("창", "열린 창"):
             notes.append(f"@{label} = PC에 열린 창 '{m.get('id')}' → windows_action focus_window 후 look_at_screen")

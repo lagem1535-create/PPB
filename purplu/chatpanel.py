@@ -27,6 +27,7 @@ GLOWS = {
     "sunset": ["#F97316", "#EF4444", "#EC4899", "#FACC15"],
     "ocean": ["#06B6D4", "#3B82F6", "#10B981"],
 }
+EXAMPLES = ["오늘 날씨 어때?", "요즘 유행하는 거 알려줘", "계산기 열어서 3 곱하기 9 해줘"]   # 새 대화 예시 3개
 MODELS = {"gemini-3.8-live": "⚡ 빠른 모델", "gemini-3.8-live-extended-thinking": "🧠 생각하는 모델"}
 STATUS = {"sleep": "듣는 중", "idle": "듣는 중", "listening": "듣는 중…", "thinking": "생각 중…",
           "acting": "하는 중…", "speaking": "말하는 중"}
@@ -298,9 +299,11 @@ class ChatPanel(QWidget):
     _history_ready = Signal(list)
     _skills_ready = Signal(list)
 
-    def __init__(self, brain, icon=None):
+    def __init__(self, brain, icon=None, open_settings=None):
         super().__init__(None, Qt.Window)
         self.brain = brain
+        self.open_settings = open_settings or (lambda: None)
+        self.mini = False
         self.setWindowTitle("퍼플루 대화")
         if icon:
             self.setWindowIcon(icon)
@@ -334,12 +337,22 @@ class ChatPanel(QWidget):
         head.addWidget(self.title)
         head.addWidget(self.status)
         head.addStretch(1)
+        btn_set = QPushButton("⚙")
+        btn_set.setToolTip("설정")
+        btn_set.clicked.connect(lambda: self.open_settings())
+        btn_new = QPushButton("＋")
+        btn_new.setToolTip("새 대화")
+        btn_new.clicked.connect(self._new_chat)
+        self.btn_mini = QPushButton("▁")
+        self.btn_mini.setToolTip("작게 / 크게")
+        self.btn_mini.clicked.connect(self._toggle_mini)
         self.btn_pin = QPushButton("📌")
         self.btn_pin.setToolTip("오른쪽에 고정 / 풀기")
         self.btn_pin.clicked.connect(lambda: config.save_settings(pc_chat_pinned=not config.settings().get("pc_chat_pinned")))
         btn_close = QPushButton("✕")
+        btn_close.setToolTip("닫기 (Ctrl+Alt+C로 다시 열기)")
         btn_close.clicked.connect(self._close_clicked)
-        for b in (self.btn_pin, btn_close):
+        for b in (btn_set, btn_new, self.btn_mini, self.btn_pin, btn_close):
             b.setObjectName("icon")
             b.setFixedSize(34, 34)
             head.addWidget(b)
@@ -363,6 +376,9 @@ class ChatPanel(QWidget):
         self.sugg.setMaximumHeight(170)
         self.sugg.hide()
         self.sugg.itemClicked.connect(lambda it: self._pick(self.sugg.row(it)))
+        self.sugg.setFocusPolicy(Qt.NoFocus)          # 눌러도 입력칸에서 글쓰기가 이어지게
+        self.sugg.setMouseTracking(True)
+        self.sugg.itemEntered.connect(lambda it: self.sugg.setCurrentItem(it))   # 마우스를 올리면 그게 골라짐
         bl.addWidget(self.sugg)
         self.attach_lbl = QLabel()
         self.attach_lbl.hide()
@@ -429,13 +445,15 @@ class ChatPanel(QWidget):
             QPushButton#icon:hover {{ background:{P['bubble']}; }}
             QPushButton#send {{ background:{cc}; color:{on_color(cc)}; border:none; border-radius:18px; font-size:13pt; }}
             QPlainTextEdit#input {{ background:transparent; border:none; font-size:11pt; }}
-            QComboBox {{ background:{P['bubble']}; border:none; border-radius:12px; padding:4px 10px; }}
+            QComboBox {{ background:{cc}; color:{on_color(cc)}; border:none; border-radius:12px; padding:4px 10px; }}
+            QComboBox QAbstractItemView {{ background:{P['bg']}; color:{P['text']}; selection-background-color:{P['bubble']}; }}
+            QComboBox::drop-down {{ border:none; width:18px; }}
             QListWidget#sugg {{ background:{P['bg']}; border:1px solid {P['line']}; border-radius:10px; }}
             QListWidget#sugg::item:selected {{ background:{P['bubble']}; color:{P['text']}; }}
             QScrollBar:vertical {{ width:6px; background:transparent; }}
             QScrollBar::handle:vertical {{ background:{P['line']}; border-radius:3px; }}
         """)
-        self.face.setVisible(s.get("pc_layout", "stack") != "full")
+        self.face.setVisible(s.get("pc_layout", "stack") != "full" and not self.mini)
         idx = self.model.findData(s.get("live_model"))
         if idx >= 0:
             self.model.setCurrentIndex(idx)
@@ -570,21 +588,26 @@ class ChatPanel(QWidget):
         bar = self.scroll.verticalScrollBar()
         at_bottom = bar.value() >= bar.maximum() - 30
         while self.msg_lay.count() > 1:  # 맨 끝 늘어나는 칸만 남기고 지우기
-            it = self.msg_lay.takeAt(0)
-            if it.widget():
-                it.widget().deleteLater()
-        add = lambda w: w is not None and self.msg_lay.insertWidget(self.msg_lay.count() - 1, w)  # noqa: E731
+            wdg = self.msg_lay.takeAt(0).widget()
+            if wdg:
+                wdg.hide()                    # 바로 숨겨야 겹쳐 보이지 않는다
+                wdg.setParent(None)
+                wdg.deleteLater()
+        def add(w):
+            if w is not None:
+                self.msg_lay.insertWidget(self.msg_lay.count() - 1, w)
+                w.show()   # 이미 보이는 창에 새로 넣은 건 직접 보여 줘야 한다
         P = pal()
-        if self.history:
+        if self.history and not self.mini:
             add(self._text(f"<div align='center' style='color:{P['dim']}; font-size:9pt'>이전 대화</div>"))
-        for m in self.history[-30:]:
+        for m in ([] if self.mini else self.history[-30:]):
             if m.get("role") == "user":
                 add(self._bubble(m.get("text", "")))
             else:
                 add(self._steps([{**st, "done": True} for st in m.get("steps") or []]))
                 if m.get("text") and m["text"] != "(실행만 했어요)":
                     add(self._text(html.escape(m["text"], quote=False).replace("\n", "<br>")))
-        for i, t in enumerate(self.past[-10:] + [self.turn]):
+        for i, t in enumerate(([] if self.mini else self.past[-10:]) + [self.turn]):
             live = t is self.turn
             if t["heard"]:
                 add(self._bubble(t["heard"], t.get("img", "")))
@@ -597,26 +620,59 @@ class ChatPanel(QWidget):
                 lab = self._text(r, "10pt")
                 lab.setStyleSheet(f"background:{P['card']}; border:1px solid {P['line']}; border-radius:12px; padding:8px 10px;")
                 add(lab)
-        if self.msg_lay.count() == 1:
-            add(self._text(f"<div align='center' style='color:{P['dim']}'><br><br>💜 퍼플루에게 무엇이든 물어보세요<br>"
-                           "위 퍼플루나 🎤를 꾹 누르고 말해도 돼요</div>"))
+        if self.msg_lay.count() == 1 and not self.mini:
+            add(self._text(f"<div align='center' style='font-size:15pt; font-weight:600'><br>무엇을 도와드릴까요?</div>"))
+            for ex in EXAMPLES:   # 누르면 바로 보내기
+                b = QPushButton(ex)
+                b.setCursor(Qt.PointingHandCursor)
+                b.setStyleSheet(f"text-align:left; background:{P['card']}; border:1px solid {P['line']}; border-radius:14px; padding:10px 16px; color:{P['text']};")
+                b.clicked.connect(lambda _=False, t=ex: (self.input.setPlainText(t), self._send()))
+                add(b)
         if at_bottom or self.state != "idle" or not getattr(self, "_scrolled_once", False):
             self._scrolled_once = True
             for ms in (30, 120, 300):   # 새 말풍선 크기가 정해진 뒤 맨 아래로
                 QTimer.singleShot(ms, lambda: bar.setValue(bar.maximum()))
 
+    def _new_chat(self):
+        self._hist_gen = getattr(self, "_hist_gen", 0) + 1   # 불러오던 옛 기록은 무시
+        self.brain.new_conversation()
+        self.history, self.past, self.turn = [], [], self._new_turn()
+        self._render()
+        self.input.setFocus()
+
+    def _toggle_mini(self):
+        """작은 모드: 얼굴을 숨기고 마지막 대화만, 창도 작게."""
+        self.mini = not self.mini
+        self.btn_mini.setText("▢" if self.mini else "▁")
+        if self.mini:
+            self._big_geom = self.geometry()
+            self.face.hide()
+            area = QGuiApplication.primaryScreen().availableGeometry()
+            self.setGeometry(area.right() - 400, area.bottom() - 290, 380, 270)
+        else:
+            self.face.setVisible(config.settings().get("pc_layout", "stack") != "full")
+            if getattr(self, "_big_geom", None):
+                self.setGeometry(self._big_geom)
+        self._render()
+
     # ---------------- 지난 대화 ----------------
     def load_history(self):
+        self._hist_gen = getattr(self, "_hist_gen", 0) + 1
+        gen = self._hist_gen
+
         def work():
             try:
                 cid = config.settings().get("current_conversation") or ""
                 rows = store.messages(cid)[-60:] if cid else []
             except Exception:
                 rows = []
-            self._history_ready.emit(rows)
+            self._history_ready.emit([gen, rows])
         threading.Thread(target=work, daemon=True).start()
 
-    def _got_history(self, rows):
+    def _got_history(self, packed):
+        gen, rows = packed
+        if gen != getattr(self, "_hist_gen", 0):   # 그사이 새 대화를 시작했으면 옛 기록은 버린다
+            return
         self.history = rows
         self.past = []
         self._render()

@@ -114,6 +114,17 @@ async def _send(ws, cmd, args, timeout):
         _waiting.pop(rid, None)
 
 
+def call_to(name: str, cmd: str, args: dict | None = None, timeout: float = 6) -> dict:
+    """특정 브라우저(크롬·웨일…)의 확장에 보내기 (예: 그 브라우저의 탭 목록)."""
+    for ws, info in _alive():
+        if info["name"] == name:
+            reply = asyncio.run_coroutine_threadsafe(_send(ws, cmd, args or {}, timeout), _loop).result(timeout + 2)
+            if not reply.get("ok"):
+                raise RuntimeError(reply.get("error") or "실패")
+            return reply.get("result") or {}
+    raise RuntimeError(f"{name} 확장이 연결돼 있지 않아요")
+
+
 def call(cmd: str, args: dict | None = None, timeout: float = 25) -> dict:
     """도구 스레드에서 부른다: 마지막으로 쓴 브라우저의 확장에 명령을 보내고 결과를 기다린다."""
     ws, _ = _current()

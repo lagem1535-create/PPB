@@ -1100,6 +1100,7 @@ function fillSettings() {
         <option value="full" ${settings.pc_layout === "full" ? "selected" : ""}>⤢ 대화창만</option></select>`),
       row("📌 PC: 대화창 오른쪽에 고정", "안 사라지고 늘 보여요", tog("pc_chat_pinned")),
       row("⬆ PC: 대화창 언제나 맨 위로", "", tog("pc_chat_on_top")),
+      row("@ 목록에 열린 것만", "지금 열린 탭·창과 브라우저만 (끄면 앱·메모도)", tog("mention_open_only")),
       row("↔ PC: 고정하면 자리 차지", "작업 표시줄처럼 대화창만큼 다른 창이 작아져요 (최대화해도 안 가려요)", tog("pc_chat_dock")),
       row("⏱ PC: 대화창 사라지기", "대답이 끝나고 이만큼 지나면 숨겨요", `<select data-k="pc_chat_autohide">${[[0, "안 사라짐"], [5, "5초 뒤"], [10, "10초 뒤"], [15, "15초 뒤"], [30, "30초 뒤"], [60, "1분 뒤"]].map(([v, t]) =>
         `<option value="${v}" ${+(settings.pc_chat_autohide ?? 15) === v ? "selected" : ""}>${t}</option>`).join("")}</select>`),
