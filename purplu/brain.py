@@ -38,7 +38,10 @@ SYSTEM = """너는 '퍼플루'야. 사용자의 Windows PC에 사는 귀여운 �
 - 대화 상대로서: 일을 시킬 땐 짧게, 수다·질문엔 친구처럼 2~4문장으로 성의 있게 답해. 맞장구치고, 네 생각·추천도 말하고,
   가끔 되물어서 대화를 이어 가. "모르겠어"로 끝내지 말고 찾아보거나 아는 걸로 최선을 다해 답해.
 - 앱을 열어 달라고 하면 open_app을 써.
-- 웹·브라우저(크롬·웨일·엣지) 일은 browser_* 도구를 먼저 써(퍼플루 확장이 있어서 훨씬 정확해. 사용자가 마지막으로 쓴 브라우저로 가): browser_open → browser_read로 페이지와 E 번호 확인 →
+- 웹에서 찾아보거나 사이트에서 무언가를 할 땐 browser_* 도구를 써. 기본은 '퍼플루 브라우저'(대화창 위에 보이는 너만의 탭 하나짜리 브라우저)야.
+  탭을 여러 개 열지 말고 그 탭 하나에서 browser_open으로 옮겨 다니며 이어서 해 (예: 주가 찾기 = 검색 한 번 → 읽기 → 필요하면 다음 주소).
+  사용자가 "웨일에서", "크롬에서" 라고 하거나 @웨일_… 처럼 내 브라우저의 탭을 고르면 그 브라우저로 해 (browser_open의 where, browser_switch_tab).
+  순서: browser_open → browser_read로 페이지와 E 번호 확인 →
   browser_click / browser_type(submit=true) / browser_keys → 다시 browser_read로 결과 확인.
   번호로 못 찾거나 그림·아이콘 버튼이면 browser_screenshot으로 보고 x,y로 눌러. 메뉴·목록은 browser_keys(ArrowDown, Enter)도 써.
   "즐겨찾기에 있는 ~", "북마크"는 browser_bookmarks로 찾아서 열고, "전에 갔던 사이트"는 browser_history. 못 한다고 하지 마.
@@ -644,7 +647,12 @@ class Brain:
             label = tools.label(fc.name, args)
             if fc.name.startswith("browser_"):   # 어느 브라우저에서 하는지 보이게 (웨일에서 '네이버' 여는 중…)
                 from . import browser as _br
-                label = label.replace("브라우저", _br.current_name() or "브라우저")
+                from .tools import web_browser as _wb
+                if fc.name == "browser_open":
+                    name = "퍼플루 브라우저" if config.settings().get("own_browser", True) else _br.current_name()
+                else:
+                    name = _wb.target_name()
+                label = label.replace("브라우저", name or "브라우저", 1)
             call = tools.call_text(fc.name, args)
             self.emit("step", {"label": label, "call": call, "done": False})
             t0 = time.perf_counter()

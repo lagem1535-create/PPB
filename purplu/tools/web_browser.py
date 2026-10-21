@@ -4,13 +4,42 @@
 """
 import base64
 
+import time
+
 from .. import browser, config, trace
+from .. import ownbrowser_client as own
+
+# 어느 브라우저로 보낼지: "own" = 퍼플루 브라우저 (탭 하나, 대화창 위에 보임), "ext" = 웨일·크롬 확장
+_target = ["own"]
+_my_tab = [None]   # 퍼플루가 웨일·크롬에서 연 탭 (다음엔 새 탭 대신 이 탭을 다시 쓴다)
+on_use = []        # 퍼플루 브라우저를 쓸 때 부를 함수 (대화창 위를 브라우저로 바꾸기)
+
+
+def _use_own() -> bool:
+    if not config.settings().get("own_browser", True):
+        return False
+    if browser._prefer["name"] and time.monotonic() < browser._prefer["until"]:   # '@웨일_…'로 고른 탭이 있으면 그 브라우저
+        return False
+    return _target[0] == "own"
+
+
+def target_name() -> str:
+    return "퍼플루 브라우저" if _use_own() else (browser.current_name() or "브라우저")
 
 
 def _call(cmd, args=None, timeout=25):
     shown = dict(args or {})
     if shown.get("allow_password"):  # 비밀번호일 수 있는 입력은 화면 기록에 안 보이게
         shown["text"] = f"<{len(shown.get('text', ''))}자 가림>"
+    if _use_own():
+        trace.cmd(f"browser.{cmd}({', '.join(f'{k}={v!r}' for k, v in shown.items())})  # 퍼플루 브라우저")
+        for fn in list(on_use):
+            try:
+                fn()
+            except Exception:
+                pass
+        r = own.call(cmd, args, timeout + 10)
+        return {"browser": "퍼플루 브라우저", **r} if isinstance(r, dict) else {"ok": False, "error": "빈 대답"}
     trace.cmd(f"browser.{cmd}({', '.join(f'{k}={v!r}' for k, v in shown.items())})  # " + (browser.current_name() or "브라우저") + " 확장")
     try:
         return {"ok": True, "browser": browser.current_name(), **browser.call(cmd, args, timeout)}
@@ -19,6 +48,7 @@ def _call(cmd, args=None, timeout=25):
 
 
 def browser_tabs() -> dict:
+    """웨일·크롬에 열린 탭 목록 (내 브라우저). 퍼플루 브라우저는 탭이 하나뿐이다."""
     try:
         trace.cmd("chrome.tabs.query({})  # " + (browser.current_name() or "브라우저") + " 확장")
         tabs = browser.call("tabs")
@@ -28,11 +58,35 @@ def browser_tabs() -> dict:
                                   "active": t.get("active")} for t in tabs][:40]}
 
 
-def browser_open(url: str, new_tab: bool = True) -> dict:
-    return _call("open", {"url": url, "new_tab": new_tab}, 30)
+def browser_open(url: str, new_tab: bool = False, where: str = "") -> dict:
+    w = (where or "").strip().lower()
+    if w in ("웨일", "크롬", "엣지", "whale", "chrome", "edge", "내 브라우저", "확장"):
+        _target[0] = "ext"
+        name = {"whale": "웨일", "chrome": "크롬", "edge": "엣지"}.get(w, w)
+        if name in browser.names():
+            browser.prefer(name)
+    elif config.settings().get("own_browser", True):
+        _target[0] = "own"
+    if _use_own():
+        return _call("open", {"url": url}, 30)
+    # 웨일·크롬: 퍼플루가 전에 연 탭이 아직 있으면 새 탭 대신 그 탭을 다시 쓴다 (탭이 잔뜩 늘어나지 않게)
+    if _my_tab[0] is not None:
+        try:
+            ids = {t["tab_id"] for t in browser.call("tabs")}
+        except Exception:
+            ids = set()
+        if _my_tab[0] in ids and not new_tab:
+            _call("switch", {"tab_id": _my_tab[0]})
+            r = _call("open", {"url": url, "new_tab": False}, 30)
+            return r
+    r = _call("open", {"url": url, "new_tab": True}, 30)
+    if r.get("ok"):
+        _my_tab[0] = r.get("tab_id")
+    return r
 
 
 def browser_switch_tab(tab_id: int) -> dict:
+    _target[0] = "ext"   # 내 브라우저의 탭을 고르면 그 브라우저로
     return _call("switch", {"tab_id": int(tab_id)})
 
 

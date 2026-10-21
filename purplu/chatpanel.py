@@ -36,6 +36,7 @@ COMMANDS = [
     ("rename", "이 대화 이름 바꾸기"),
     ("delete", "이 대화 지우기"),
     ("chats", "다른 대화로 바꾸기"),
+    ("web", "위쪽을 퍼플루 ↔ 퍼플루 브라우저로"),
     ("model", "빠른 모델 ↔ 생각하는 모델"),
     ("mini", "작은 모드 켜기/끄기"),
     ("pin", "오른쪽에 고정 / 풀기"),
@@ -44,7 +45,7 @@ COMMANDS = [
     ("skills", "스킬 목록 (# 으로도 불러요)"),
     ("close", "대화창 닫기"),
 ]
-CMD_ALIAS = {"setting": "settings", "설정": "settings", "새대화": "new", "clear": "new"}
+CMD_ALIAS = {"browser": "web", "브라우저": "web", "setting": "settings", "설정": "settings", "새대화": "new", "clear": "new"}
 
 MODELS = {"gemini-3.8-live": "⚡ 빠른 모델", "gemini-3.8-live-extended-thinking": "🧠 생각하는 모델"}
 STATUS = {"sleep": "듣는 중", "idle": "듣는 중", "listening": "듣는 중…", "thinking": "생각 중…",
@@ -345,6 +346,10 @@ class IconButton(QPushButton):
                 p.setBrush(accent)
             p.drawPath(path)
             p.drawLine(QPointF(cx, cy + 2), QPointF(cx, cy + 8))
+        elif k == "web":      # 지구본 (퍼플루 브라우저)
+            p.drawEllipse(QPointF(cx, cy), 7, 7)
+            p.drawEllipse(QPointF(cx, cy), 3, 7)
+            p.drawLine(QPointF(cx - 7, cy), QPointF(cx + 7, cy))
         elif k == "close":
             p.drawLine(QPointF(cx - 5.5, cy - 5.5), QPointF(cx + 5.5, cy + 5.5))
             p.drawLine(QPointF(cx + 5.5, cy - 5.5), QPointF(cx - 5.5, cy + 5.5))
@@ -437,6 +442,8 @@ class ChatPanel(QWidget):
     _history_ready = Signal(list)
     _skills_ready = Signal(list)
     _convs_ready = Signal(list)
+    _web_hwnd = Signal(int)    # 퍼플루 브라우저 창이 생김 → 위쪽 칸에 끼우기
+    _web_used = Signal()       # 퍼플루가 브라우저를 씀 → 위쪽 칸을 브라우저로
 
     def __init__(self, brain, icon=None, open_settings=None):
         super().__init__(None, Qt.Window)
@@ -465,7 +472,25 @@ class ChatPanel(QWidget):
         self.face = FaceView()
         self.face.pressed.connect(self._talk_start)
         self.face.released.connect(self._talk_end)
-        lay.addWidget(self.face, 34)
+        from PySide6.QtWidgets import QStackedWidget
+        self.top = QStackedWidget()
+        self.top.addWidget(self.face)
+        self.web_holder = QWidget()
+        wl = QVBoxLayout(self.web_holder)
+        wl.setContentsMargins(0, 0, 0, 0)
+        self.web_wait = QLabel("퍼플루 브라우저 켜는 중…")
+        self.web_wait.setAlignment(Qt.AlignCenter)
+        wl.addWidget(self.web_wait)
+        self.top.addWidget(self.web_holder)
+        self._web_box = None
+        lay.addWidget(self.top, 34)
+        self._lay = lay
+        self._web_hwnd.connect(self._embed_web)
+        self._web_used.connect(lambda: self._show_web(True, auto=True))
+        from . import ownbrowser_client
+        from .tools import web_browser
+        ownbrowser_client.listeners.append(self._web_hwnd.emit)
+        web_browser.on_use.append(self._web_used.emit)
 
         self.body = QFrame()
         self.body.setObjectName("body")
@@ -493,6 +518,8 @@ class ChatPanel(QWidget):
         head.addWidget(self.conv, 0)
         head.addWidget(self.status)
         head.addStretch(1)
+        self.btn_web = IconButton("web", "위쪽을 퍼플루 ↔ 퍼플루 브라우저로 바꾸기")
+        self.btn_web.clicked.connect(lambda: self._show_web(self.top.currentIndex() == 0))
         btn_new = IconButton("new", "새 대화")
         btn_new.clicked.connect(self._new_chat)
         self.btn_mini = IconButton("mini", "작게 / 크게")
@@ -504,7 +531,7 @@ class ChatPanel(QWidget):
         btn_close = IconButton("close", "닫기 (Ctrl+Alt+C로 다시 열기)")
         btn_close.clicked.connect(self._close_clicked)
         head.setSpacing(2)
-        for b in (btn_new, self.btn_mini, self.btn_pin, btn_set):
+        for b in (self.btn_web, btn_new, self.btn_mini, self.btn_pin, btn_set):
             head.addWidget(b)
         sep = QFrame()
         sep.setFixedSize(1, 16)
@@ -646,7 +673,7 @@ class ChatPanel(QWidget):
             QScrollBar:vertical {{ width:6px; background:transparent; }}
             QScrollBar::handle:vertical {{ background:{P['line']}; border-radius:3px; }}
         """)
-        self.face.setVisible(s.get("pc_layout", "stack") != "full" and not self.mini)
+        self.top.setVisible((s.get("pc_layout", "stack") != "full" or self.top.currentIndex() == 1) and not self.mini)
         idx = self.model.findData(s.get("live_model"))
         if idx >= 0:
             self.model.setCurrentIndex(idx)
@@ -1005,6 +1032,46 @@ class ChatPanel(QWidget):
         self._render()
         self.input.setFocus()
 
+    def _show_web(self, on: bool, auto: bool = False):
+        """위쪽 칸을 퍼플루 브라우저(on) 또는 퍼플루 얼굴로. 퍼플루가 브라우저를 쓰면 저절로 브라우저로."""
+        if on == (self.top.currentIndex() == 1):
+            return
+        self.top.setCurrentIndex(1 if on else 0)
+        self.btn_web.active = on
+        self.btn_web.update()
+        self._lay.setStretch(0, 60 if on else 34)   # 브라우저일 땐 위쪽을 더 크게
+        if on:
+            if self.mini:
+                self._toggle_mini()
+            self.top.show()
+            if auto and not self.isVisible():
+                self.open(False)
+            from . import ownbrowser_client as ob
+            if ob.alive() and ob.hwnd[0]:
+                self._embed_web(ob.hwnd[0])
+            else:
+                threading.Thread(target=ob.start, daemon=True).start()
+        else:
+            self.top.setVisible(config.settings().get("pc_layout", "stack") != "full" and not self.mini)
+
+    def _embed_web(self, hwnd: int):
+        """따로 도는 퍼플루 브라우저 창을 위쪽 칸에 끼운다 (브라우저가 죽어도 대화창은 안 죽음)."""
+        if getattr(self, "_web_embedded", 0) == hwnd:
+            return
+        from PySide6.QtGui import QWindow
+        win = QWindow.fromWinId(hwnd)
+        if win is None:
+            return
+        if self._web_box is not None:
+            self._web_box.hide()
+            self._web_box.setParent(None)
+            self._web_box.deleteLater()
+        self._web_box = QWidget.createWindowContainer(win, self.web_holder)
+        self._web_box.setFocusPolicy(Qt.StrongFocus)
+        self.web_wait.hide()
+        self.web_holder.layout().addWidget(self._web_box)
+        self._web_embedded = hwnd
+
     def _toggle_mini(self):
         """작은 모드: 얼굴을 숨기고 마지막 대화만, 창도 작게."""
         self.mini = not self.mini
@@ -1012,11 +1079,11 @@ class ChatPanel(QWidget):
         self.btn_mini.update()
         if self.mini:
             self._big_geom = self.geometry()
-            self.face.hide()
+            self.top.hide()
             area = QGuiApplication.primaryScreen().availableGeometry()
             self.setGeometry(area.right() - 400, area.bottom() - 290, 380, 270)
         else:
-            self.face.setVisible(config.settings().get("pc_layout", "stack") != "full")
+            self.top.setVisible(config.settings().get("pc_layout", "stack") != "full" or self.top.currentIndex() == 1)
             if getattr(self, "_big_geom", None):
                 self.setGeometry(self._big_geom)
         self._render()
@@ -1230,6 +1297,8 @@ class ChatPanel(QWidget):
             self._schedule()
         elif name == "mini":
             self._toggle_mini()
+        elif name == "web":
+            self._show_web(self.top.currentIndex() == 0)
         elif name == "pin":
             config.save_settings(pc_chat_pinned=not s.get("pc_chat_pinned"))
         elif name == "top":

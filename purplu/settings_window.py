@@ -609,6 +609,7 @@ class SettingsWindow(QWidget):
         self.size_slider.sliderReleased.connect(lambda: (config.save_settings(cursor_size=self.size_slider.value()), self._flash()))
         row(v, "커서 크기", "", self.size_slider)
         toggle(v, "browser_real_input", "브라우저: 진짜 마우스·키보드", "확장이 디버깅 알림을 띄워요")
+        toggle(v, "own_browser", "퍼플루 브라우저 쓰기", "웹 일은 대화창 위의 탭 하나짜리 브라우저에서 (끄면 웨일·크롬)")
         toggle(v, "browser_highlights", "브라우저: 하이라이트·노트", "새로고침해도 남아요")
 
         # ---- 연결 ----
