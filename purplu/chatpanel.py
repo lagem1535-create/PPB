@@ -213,6 +213,77 @@ class FaceView(QWidget):
         p.end()
 
 
+# ------------------------------------------------------------------ 머리줄 선 아이콘
+class IconButton(QPushButton):
+    """⚙·＋·작게·고정·닫기를 같은 굵기의 선으로 그린다 (이모티콘마다 색·크기가 달라 지저분하던 것)."""
+
+    def __init__(self, kind: str, tip: str):
+        super().__init__()
+        self.kind, self.active, self._hover = kind, False, False
+        self.setToolTip(tip)
+        self.setFixedSize(30, 30)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFlat(True)
+
+    def enterEvent(self, e):
+        self._hover = True
+        self.update()
+
+    def leaveEvent(self, e):
+        self._hover = False
+        self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        P = pal()
+        accent = QColor(config.settings().get("chat_color") or config.settings().get("color") or "#8B5CF6")
+        if self._hover or self.active:
+            bg = QColor(accent if self.active else P["bubble"])
+            if self.active:
+                bg.setAlpha(40)
+            p.setPen(Qt.NoPen)
+            p.setBrush(bg)
+            p.drawRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 9, 9)
+        col = accent if self.active else QColor(P["dim"] if not self._hover else P["text"])
+        pen = QPen(col, 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        cx, cy = self.width() / 2, self.height() / 2
+        k = self.kind
+        if k == "settings":   # 톱니: 동그라미 + 짧은 살 8개
+            p.drawEllipse(QPointF(cx, cy), 3.2, 3.2)
+            for i in range(8):
+                a = i * math.pi / 4
+                p.drawLine(QPointF(cx + math.cos(a) * 5.6, cy + math.sin(a) * 5.6), QPointF(cx + math.cos(a) * 7.6, cy + math.sin(a) * 7.6))
+            p.drawEllipse(QPointF(cx, cy), 5.6, 5.6)
+        elif k == "new":      # 연필 달린 네모 (새 대화)
+            p.drawRoundedRect(QRectF(cx - 7, cy - 6, 12, 13), 2.5, 2.5)
+            p.drawLine(QPointF(cx - 1, cy + 2), QPointF(cx + 7, cy - 6))
+        elif k == "mini":     # 작게: 가로선 / 크게: 네모
+            if self.active:
+                p.drawRoundedRect(QRectF(cx - 6, cy - 6, 12, 12), 2, 2)
+            else:
+                p.drawLine(QPointF(cx - 6, cy + 4), QPointF(cx + 6, cy + 4))
+        elif k == "pin":      # 압정
+            path = QPainterPath()
+            path.moveTo(cx - 5, cy - 7)
+            path.lineTo(cx + 5, cy - 7)
+            path.lineTo(cx + 3, cy - 1)
+            path.lineTo(cx + 6, cy + 2)
+            path.lineTo(cx - 6, cy + 2)
+            path.lineTo(cx - 3, cy - 1)
+            path.closeSubpath()
+            if self.active:
+                p.setBrush(accent)
+            p.drawPath(path)
+            p.drawLine(QPointF(cx, cy + 2), QPointF(cx, cy + 8))
+        elif k == "close":
+            p.drawLine(QPointF(cx - 5.5, cy - 5.5), QPointF(cx + 5.5, cy + 5.5))
+            p.drawLine(QPointF(cx + 5.5, cy - 5.5), QPointF(cx - 5.5, cy + 5.5))
+        p.end()
+
+
 # ------------------------------------------------------------------ 빛이 도는 입력칸
 class GlowBox(QFrame):
     def __init__(self):
@@ -335,27 +406,29 @@ class ChatPanel(QWidget):
         self.status = StatusLabel()
         self.status.setObjectName("status")
         head.addWidget(self.title)
+        head.addSpacing(6)
         head.addWidget(self.status)
         head.addStretch(1)
-        btn_set = QPushButton("⚙")
-        btn_set.setToolTip("설정")
-        btn_set.clicked.connect(lambda: self.open_settings())
-        btn_new = QPushButton("＋")
-        btn_new.setToolTip("새 대화")
+        btn_new = IconButton("new", "새 대화")
         btn_new.clicked.connect(self._new_chat)
-        self.btn_mini = QPushButton("▁")
-        self.btn_mini.setToolTip("작게 / 크게")
+        self.btn_mini = IconButton("mini", "작게 / 크게")
         self.btn_mini.clicked.connect(self._toggle_mini)
-        self.btn_pin = QPushButton("📌")
-        self.btn_pin.setToolTip("오른쪽에 고정 / 풀기")
+        self.btn_pin = IconButton("pin", "오른쪽에 고정 / 풀기")
         self.btn_pin.clicked.connect(lambda: config.save_settings(pc_chat_pinned=not config.settings().get("pc_chat_pinned")))
-        btn_close = QPushButton("✕")
-        btn_close.setToolTip("닫기 (Ctrl+Alt+C로 다시 열기)")
+        btn_set = IconButton("settings", "설정")
+        btn_set.clicked.connect(lambda: self.open_settings())
+        btn_close = IconButton("close", "닫기 (Ctrl+Alt+C로 다시 열기)")
         btn_close.clicked.connect(self._close_clicked)
-        for b in (btn_set, btn_new, self.btn_mini, self.btn_pin, btn_close):
-            b.setObjectName("icon")
-            b.setFixedSize(34, 34)
+        head.setSpacing(2)
+        for b in (btn_new, self.btn_mini, self.btn_pin, btn_set):
             head.addWidget(b)
+        sep = QFrame()
+        sep.setFixedSize(1, 16)
+        sep.setObjectName("sep")
+        head.addSpacing(4)
+        head.addWidget(sep)
+        head.addSpacing(4)
+        head.addWidget(btn_close)
         bl.addLayout(head)
 
         self.scroll = QScrollArea()
@@ -440,6 +513,7 @@ class ChatPanel(QWidget):
             QWidget {{ font-family:'Malgun Gothic'; font-size:10.5pt; color:{P['text']}; }}
             QFrame#body, QWidget#msgs, QScrollArea, QScrollArea > QWidget > QWidget {{ background:{P['bg']}; }}
             QLabel#title {{ color:{c}; font-weight:700; font-size:12pt; }}
+            QFrame#sep {{ background:{P['line']}; }}
             QLabel#status {{ color:{P['dim']}; }}
             QPushButton#icon {{ background:transparent; border:none; border-radius:17px; font-size:13pt; }}
             QPushButton#icon:hover {{ background:{P['bubble']}; }}
@@ -457,7 +531,8 @@ class ChatPanel(QWidget):
         idx = self.model.findData(s.get("live_model"))
         if idx >= 0:
             self.model.setCurrentIndex(idx)
-        self.btn_pin.setStyleSheet(f"background:{P['bubble']};" if s.get("pc_chat_pinned") else "")
+        self.btn_pin.active = bool(s.get("pc_chat_pinned"))
+        self.btn_pin.update()
         self._render()
 
     def apply_on_top(self):
@@ -643,7 +718,8 @@ class ChatPanel(QWidget):
     def _toggle_mini(self):
         """작은 모드: 얼굴을 숨기고 마지막 대화만, 창도 작게."""
         self.mini = not self.mini
-        self.btn_mini.setText("▢" if self.mini else "▁")
+        self.btn_mini.active = self.mini
+        self.btn_mini.update()
         if self.mini:
             self._big_geom = self.geometry()
             self.face.hide()
@@ -848,7 +924,8 @@ class ChatPanel(QWidget):
 
     def apply_pin(self):
         s = config.settings()
-        self.btn_pin.setStyleSheet(f"background:{pal()['bubble']};" if s.get("pc_chat_pinned") else "")
+        self.btn_pin.active = bool(s.get("pc_chat_pinned"))
+        self.btn_pin.update()
         if not s.get("pc_chat_pinned"):
             self._release_space()
             return
