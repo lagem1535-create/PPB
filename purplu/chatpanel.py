@@ -226,7 +226,7 @@ class _SuggestDelegate(QStyledItemDelegate):
         P = pal()
         p.save()
         r = option.rect
-        if option.state & QStyle.State_Selected:
+        if option.state & (QStyle.State_Selected | QStyle.State_MouseOver):
             p.setPen(Qt.NoPen)
             p.setBrush(QColor(P["bubble"]))
             p.drawRoundedRect(QRectF(r).adjusted(2, 1, -2, -1), 8, 8)
@@ -234,6 +234,7 @@ class _SuggestDelegate(QStyledItemDelegate):
         f = QFont(option.font)
         f.setPointSizeF(8.5)
         p.setFont(f)
+        kind = p.fontMetrics().elidedText(kind, Qt.ElideRight, int(r.width() * 0.4))   # 긴 설명은 줄여서 이름을 가리지 않게
         kw = p.fontMetrics().horizontalAdvance(kind) + 14
         p.setPen(QColor(P["dim"]))
         p.drawText(QRectF(r.right() - kw, r.top(), kw - 10, r.height()), Qt.AlignVCenter | Qt.AlignRight, kind)
@@ -493,6 +494,7 @@ class ChatPanel(QWidget):
         self.sugg.itemClicked.connect(lambda it: self._pick(self.sugg.row(it)))
         self.sugg.setFocusPolicy(Qt.NoFocus)          # 눌러도 입력칸에서 글쓰기가 이어지게
         self.sugg.setMouseTracking(True)
+        self.sugg.viewport().setMouseTracking(True)   # 이게 있어야 마우스를 올렸을 때 알 수 있다
         self.sugg.itemEntered.connect(lambda it: self.sugg.setCurrentItem(it))   # 마우스를 올리면 그게 골라짐
         bl.addWidget(self.sugg)
         self.attach_lbl = QLabel()
@@ -792,6 +794,7 @@ class ChatPanel(QWidget):
         cur = config.settings().get("current_conversation") or ""
         m.addAction("＋  새 대화", self._new_chat)
         m.addAction("✎  이 대화 이름 바꾸기", self._rename_conv)
+        m.addAction("🗑  이 대화 지우기", self._delete_conv)
         m.addSeparator()
         for c in getattr(self, "convs", [])[:15]:
             title = (c.get("title") or "새 대화")[:34]
@@ -822,6 +825,18 @@ class ChatPanel(QWidget):
             for c in getattr(self, "convs", []):
                 if c["id"] == cid:
                     c["title"] = title.strip()
+
+    def _delete_conv(self):
+        from PySide6.QtWidgets import QMessageBox
+        cid = config.settings().get("current_conversation") or ""
+        if not cid:
+            return
+        title = next((c.get("title") for c in getattr(self, "convs", []) if c["id"] == cid), "이 대화")
+        if QMessageBox.question(self, "대화 지우기", f"'{title}' 대화를 지울까요?\n지우면 되돌릴 수 없어요.") != QMessageBox.Yes:
+            return
+        self.convs = [c for c in getattr(self, "convs", []) if c["id"] != cid]
+        threading.Thread(target=lambda: store.delete_conversation(cid), daemon=True).start()
+        self._new_chat()   # 지운 뒤엔 새 대화로
 
     def _new_chat(self):
         self._hist_gen = getattr(self, "_hist_gen", 0) + 1   # 불러오던 옛 기록은 무시
@@ -910,6 +925,11 @@ class ChatPanel(QWidget):
 
     def eventFilter(self, obj, e):
         t = e.type()
+        if t == e.Type.MouseMove and obj is self.sugg.viewport():   # 마우스가 있는 줄이 골라지게
+            it = self.sugg.itemAt(e.position().toPoint())
+            if it is not None and it is not self.sugg.currentItem():
+                self.sugg.setCurrentItem(it)
+            return False
         # @·/ 목록이 떠 있으면 화살표·엔터는 어디로 가든 목록이 먼저 받는다 (한글 입력 중에도)
         if t in (e.Type.KeyPress, e.Type.ShortcutOverride) and self.sugg.isVisible() and self.isActiveWindow():
             k = e.key()
@@ -967,18 +987,27 @@ class ChatPanel(QWidget):
             if at >= 0 and " " not in before[at:] and (at == 0 or before[at - 1] in " \n"):
                 q = before[at + 1:].lower()
                 self._kind = "@"
-                if q == "" or not self.mentions:
+                at_key = (at, len(self.input.toPlainText()[:at]))   # 이번 @ 하나당 목록은 한 번만 새로 받는다
+                if getattr(self, "_asked_at", None) != at_key:
+                    self._asked_at = at_key
                     self._ask_mentions()
                 self._items = [{"label": m["label"], "sub": m["kind"], "m": m} for m in self.mentions
                                if q in m["label"].lower()][:30]
-        self.sugg.clear()
-        for it in self._items:
-            item = QListWidgetItem(f"{'/' if self._kind == '/' else '@'}{it['label']}")
-            item.setData(Qt.UserRole, it["sub"])
-            self.sugg.addItem(item)
+        labels = [f"{'/' if self._kind == '/' else '@'}{it['label']}" for it in self._items]
+        old = [self.sugg.item(i).text() for i in range(self.sugg.count())]
+        if labels != old:   # 목록이 그대로면 다시 만들지 않는다 (고른 줄·스크롤이 위로 튀지 않게)
+            keep = self.sugg.currentItem().text() if self.sugg.currentItem() else None
+            bar = self.sugg.verticalScrollBar().value()
+            self.sugg.clear()
+            for text, it in zip(labels, self._items):
+                item = QListWidgetItem(text)
+                item.setData(Qt.UserRole, it["sub"])
+                self.sugg.addItem(item)
+            row = labels.index(keep) if keep in labels else 0
+            self.sugg.setCurrentRow(row)
+            if keep in labels:
+                self.sugg.verticalScrollBar().setValue(bar)
         self.sugg.setVisible(bool(self._items))
-        if self._items:
-            self.sugg.setCurrentRow(0)
 
     def _ask_skills(self):
         def work():
