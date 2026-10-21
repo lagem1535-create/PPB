@@ -209,9 +209,19 @@ def _mention_list() -> list[dict]:
 
 
 def _expand_chat(text: str, mentions: list) -> str:
-    """'/스킬이름 …' → 그 스킬을 쓰라는 지시, '@멘션' → 무엇을 가리키는지 덧붙인다."""
+    """'#스킬이름 …' → 그 스킬을 쓰라는 지시, '@멘션' → 무엇을 가리키는지 덧붙인다."""
     text = (text or "").strip()
-    if text.startswith("/"):
+    if "#" in text:   # 띄어쓰기가 있는 스킬 이름도 (예: #아침 브리핑) — 가장 길게 맞는 이름
+        try:
+            from .tools.skills import list_skills
+            names = sorted((r["name"] for r in list_skills()["skills"]), key=len, reverse=True)
+            hit = next((n for n in names if f"#{n}" in text), None)
+            if hit:
+                rest = text.replace(f"#{hit}", "", 1).strip()
+                text = f"[#{hit} 스킬] {rest}\n(지시: use_skill('{hit}')로 설명서를 먼저 읽고 그대로 해.)"
+        except Exception:
+            pass
+    elif text.startswith("/"):   # 예전 방식 '/스킬' 도 그대로 알아듣기
         name, _, rest = text[1:].partition(" ")
         try:  # 띄어쓰기가 있는 스킬 이름도 (예: /아침 브리핑) — 가장 길게 맞는 이름
             from .tools.skills import list_skills

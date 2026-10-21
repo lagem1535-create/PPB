@@ -325,12 +325,7 @@ class Brain:
         return types.LiveConnectConfig(**cfg)
 
     def _conversation_id(self) -> str:
-        cid = config.settings().get("current_conversation") or ""
-        if not cid:
-            cid = store.new_conversation()
-            config.save_settings(current_conversation=cid)
-            self.emit("conversation", cid)
-        return cid
+        return config.settings().get("current_conversation") or ""   # 없으면 첫 말을 저장할 때 만든다
 
     async def _history(self, cid: str) -> list[types.Content]:
         try:
@@ -509,7 +504,8 @@ class Brain:
     async def _switch_conversation(self, cid: str | None):
         await self._disconnect()
         if cid is None:
-            cid = await asyncio.to_thread(store.new_conversation)
+            cid = ""   # 새 대화는 첫 말을 주고받을 때 저장한다 (빈 대화가 목록에 쌓이지 않게)
+        self._cid = cid
         config.save_settings(current_conversation=cid)
         self.emit("conversation", cid)
 
@@ -520,10 +516,15 @@ class Brain:
         self._turn_user = self._turn_model = ""
         self._turn_steps = []
         cid = getattr(self, "_cid", None)
-        if not cid or not (user or model):
+        if not (user or model):
             return
 
         def save():
+            nonlocal cid
+            if not cid:   # 아직 저장 안 된 새 대화 → 이제 처음 저장
+                cid = store.new_conversation((user or model)[:30])
+                self._cid = cid
+                config.save_settings(current_conversation=cid)
             if user:
                 store.add_message(cid, "user", user)
             if model or steps:

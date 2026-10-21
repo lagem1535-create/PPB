@@ -29,6 +29,23 @@ GLOWS = {
     "ocean": ["#06B6D4", "#3B82F6", "#10B981"],
 }
 EXAMPLES = ["오늘 날씨 어때?", "요즘 유행하는 거 알려줘", "계산기 열어서 3 곱하기 9 해줘"]   # 새 대화 예시 3개
+# '/' 를 치면 뜨는 명령 (이름, 설명). 한글로 쳐도 설명에서 찾아진다
+COMMANDS = [
+    ("settings", "설정 열기"),
+    ("new", "새 대화 시작"),
+    ("rename", "이 대화 이름 바꾸기"),
+    ("delete", "이 대화 지우기"),
+    ("chats", "다른 대화로 바꾸기"),
+    ("model", "빠른 모델 ↔ 생각하는 모델"),
+    ("mini", "작은 모드 켜기/끄기"),
+    ("pin", "오른쪽에 고정 / 풀기"),
+    ("top", "언제나 맨 위로 켜기/끄기"),
+    ("image", "그림 붙이기"),
+    ("skills", "스킬 목록 (# 으로도 불러요)"),
+    ("close", "대화창 닫기"),
+]
+CMD_ALIAS = {"setting": "settings", "설정": "settings", "새대화": "new", "clear": "new"}
+
 MODELS = {"gemini-3.8-live": "⚡ 빠른 모델", "gemini-3.8-live-extended-thinking": "🧠 생각하는 모델"}
 STATUS = {"sleep": "듣는 중", "idle": "듣는 중", "listening": "듣는 중…", "thinking": "생각 중…",
           "acting": "하는 중…", "speaking": "말하는 중"}
@@ -469,6 +486,7 @@ class ChatPanel(QWidget):
         for wdg in (self.conv, self.status):
             wdg.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)   # 글자가 길어도 창이 넓어지지 않게
             wdg.setMinimumWidth(40)
+        self.conv.setMinimumWidth(190)   # 대화 제목이 너무 잘리지 않게
         self.status.setMinimumWidth(96)   # '말하는 중' 이 잘리지 않게
         head.addWidget(self.title)
         head.addSpacing(6)
@@ -861,7 +879,9 @@ class ChatPanel(QWidget):
         m.addAction("✎  이 대화 이름 바꾸기", self._rename_conv)
         m.addAction("🗑  이 대화 지우기", self._delete_conv)
         m.addSeparator()
-        for c in getattr(self, "convs", [])[:15]:
+        shown = [c for c in getattr(self, "convs", [])
+                 if c["id"] == cur or not (c.get("title") == "새 대화" and c.get("updated") == c.get("created"))]
+        for c in shown[:15]:
             title = (c.get("title") or "새 대화")[:34]
             act = m.addAction(("●  " if c["id"] == cur else "     ") + title)
             act.triggered.connect(lambda _=False, cid=c["id"]: self._switch_conv(cid))
@@ -962,6 +982,13 @@ class ChatPanel(QWidget):
         text = self.input.toPlainText().strip()
         if not text and not self.attach:
             return
+        if text.startswith("/") and " " not in text:
+            name = CMD_ALIAS.get(text[1:].lower(), text[1:].lower())
+            if any(n == name for n, _ in COMMANDS):
+                self.input.clear()
+                self.sugg.hide()
+                self._run_command(name)
+                return
         mentions, self.chosen = self.chosen, []
         img, self.attach = self.attach, None
         self.attach_lbl.hide()
@@ -1009,6 +1036,9 @@ class ChatPanel(QWidget):
                     self.sugg.scrollToItem(self.sugg.currentItem())
                 elif k == Qt.Key_Escape:
                     self.sugg.hide()
+                elif e.modifiers() & Qt.ShiftModifier and k in (Qt.Key_Return, Qt.Key_Enter):
+                    self.sugg.hide()
+                    self.input.insertPlainText("\n")
                 else:
                     self._pick(max(0, self.sugg.currentRow()))
                 return True
@@ -1025,8 +1055,11 @@ class ChatPanel(QWidget):
             if k == Qt.Key_Escape:
                 self.sugg.hide()
                 return True
-            if k in (Qt.Key_Return, Qt.Key_Enter) and not (e.modifiers() & Qt.ShiftModifier):
-                self._send()
+            if k in (Qt.Key_Return, Qt.Key_Enter):
+                if e.modifiers() & Qt.ShiftModifier:   # 쉬프트+엔터 = 줄바꿈
+                    self.input.insertPlainText("\n")
+                else:
+                    self._send()
                 return True
         return super().eventFilter(obj, e)
 
@@ -1037,14 +1070,20 @@ class ChatPanel(QWidget):
         cur = self.input.textCursor()
         before = self.input.toPlainText()[:cur.position()]
         self._items = []
+        sharp = before.rfind("#")
         if before.startswith("/") and " " not in before:
             q = before[1:].lower()
+            self._kind = "/"
+            self._items = [{"label": n, "sub": d} for n, d in COMMANDS
+                           if n.startswith(q) or q in d.lower() or CMD_ALIAS.get(q, "") == n]
+        elif sharp >= 0 and " " not in before[sharp:] and (sharp == 0 or before[sharp - 1] in " \n"):
+            q = before[sharp + 1:].lower()
             rows = getattr(self, "_skills", None)
             if rows is None:   # 처음 한 번 뒤에서 불러오고, 오면 다시 보여 준다
                 self._skills = []
                 self._ask_skills()
                 rows = []
-            self._kind = "/"
+            self._kind = "#"
             self._items = [{"label": r["name"], "sub": r.get("description") or "스킬"} for r in rows
                            if r.get("enabled", True) and q in r["name"].lower()]
         else:
@@ -1058,7 +1097,7 @@ class ChatPanel(QWidget):
                     self._ask_mentions()
                 self._items = [{"label": m["label"], "sub": m["kind"], "m": m} for m in self.mentions
                                if q in m["label"].lower()][:30]
-        labels = [f"{'/' if self._kind == '/' else '@'}{it['label']}" for it in self._items]
+        labels = [f"{self._kind}{it['label']}" for it in self._items]
         old = [self.sugg.item(i).text() for i in range(self.sugg.count())]
         if labels != old:   # 목록이 그대로면 다시 만들지 않는다 (고른 줄·스크롤이 위로 튀지 않게)
             keep = self.sugg.currentItem().text() if self.sugg.currentItem() else None
@@ -1073,6 +1112,38 @@ class ChatPanel(QWidget):
             if keep in labels:
                 self.sugg.verticalScrollBar().setValue(bar)
         self.sugg.setVisible(bool(self._items))
+
+    def _run_command(self, name: str):
+        s = config.settings()
+        if name == "settings":
+            self.open_settings()
+        elif name == "new":
+            self._new_chat()
+        elif name == "rename":
+            self._rename_conv()
+        elif name == "delete":
+            self._delete_conv()
+        elif name == "chats":
+            self._conv_menu()
+        elif name == "model":
+            other = next(k for k in MODELS if k != s.get("live_model"))
+            config.save_settings(live_model=other)
+            self.turn["results"].append(f"모델을 {MODELS[other]}(으)로 바꿨어요")
+            self._schedule()
+        elif name == "mini":
+            self._toggle_mini()
+        elif name == "pin":
+            config.save_settings(pc_chat_pinned=not s.get("pc_chat_pinned"))
+        elif name == "top":
+            config.save_settings(pc_chat_on_top=not s.get("pc_chat_on_top", True))
+        elif name == "image":
+            self._attach()
+        elif name == "skills":
+            self.input.setPlainText("#")
+            self.input.moveCursor(self.input.textCursor().MoveOperation.End)
+        elif name == "close":
+            self._close_clicked()
+        self.input.setFocus()
 
     def _ask_skills(self):
         def work():
@@ -1114,8 +1185,13 @@ class ChatPanel(QWidget):
         text = self.input.toPlainText()
         pos = self.input.textCursor().position()
         before, after = text[:pos], text[pos:]
-        if self._kind == "/":
-            new_before = f"/{it['label']} "
+        if self._kind == "/":   # 명령은 고르면 바로 실행
+            self.input.clear()
+            self.sugg.hide()
+            self._run_command(it["label"])
+            return
+        if self._kind == "#":
+            new_before = before[:before.rfind("#")] + f"#{it['label']} "
         else:
             new_before = before[:before.rfind("@")] + f"@{it['label']} "
             self.chosen.append(it["m"])

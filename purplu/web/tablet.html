@@ -864,11 +864,25 @@ $("#csend").onclick = sendChat;
 
 // ---------- @멘션 · /스킬 ----------
 let mentionList = [], chosenMentions = [], sugItems = [], sugSel = 0, sugKind = "";
+const COMMANDS = [["settings", "설정 열기"], ["new", "새 대화 시작"], ["chats", "대화 목록"], ["skills", "스킬 목록 (# 으로도 불러요)"]];
+const CMD_ALIAS = { setting: "settings", "설정": "settings", "새대화": "new", clear: "new" };
+function runCommand(name) {
+  $("#cin").value = ""; sugItems = []; $("#suggest").style.display = "none";
+  const page = p => { openPanel(); document.querySelector(`.tabs button[data-p=${p}]`)?.click(); };
+  if (name === "settings") page("set");
+  else if (name === "new") send({ type: "new_conversation" });
+  else if (name === "chats") page("chat");
+  else if (name === "skills") { $("#cin").value = "#"; sugUpdate(); }
+  $("#cin").focus();
+}
 function sugUpdate() {
   const ta = $("#cin"), before = ta.value.slice(0, ta.selectionStart);
-  const slash = before.match(/^\/([^\s]*)$/), at = before.match(/(?:^|\s)@([^\s@]*)$/);
+  const slash = before.match(/^\/([^\s]*)$/), sharp = before.match(/(?:^|\s)#([^\s#]*)$/), at = before.match(/(?:^|\s)@([^\s@]*)$/);
   if (slash) {
     sugKind = "/"; const q = slash[1].toLowerCase();
+    sugItems = COMMANDS.filter(([n, d]) => n.startsWith(q) || d.includes(q) || CMD_ALIAS[q] === n).map(([n, d]) => ({ label: n, sub: d }));
+  } else if (sharp) {
+    sugKind = "#"; const q = sharp[1].toLowerCase();
     sugItems = skillRows.filter(r => r.enabled && r.name.toLowerCase().includes(q)).map(r => ({ label: r.name, sub: r.description || "스킬" }));
   } else if (at) {
     sugKind = "@"; const q = at[1].toLowerCase();
@@ -879,14 +893,15 @@ function sugUpdate() {
   const box = $("#suggest");
   if (!sugItems.length) { box.style.display = "none"; return; }
   sugSel = Math.min(sugSel, sugItems.length - 1);
-  box.innerHTML = sugItems.map((it, i) => `<div class="${i === sugSel ? "sel" : ""}" data-i="${i}">${sugKind === "/" ? "🧩 /" : "@"}${esc(it.label)}<small>${esc(it.sub)}</small></div>`).join("");
+  box.innerHTML = sugItems.map((it, i) => `<div class="${i === sugSel ? "sel" : ""}" data-i="${i}">${sugKind}${esc(it.label)}<small>${esc(it.sub)}</small></div>`).join("");
   box.style.display = "block";
   box.querySelectorAll("[data-i]").forEach(el => el.onmousedown = e => { e.preventDefault(); sugPick(+el.dataset.i); });
 }
 function sugPick(i) {
   const it = sugItems[i]; if (!it) return;
   const ta = $("#cin"), pos = ta.selectionStart, before = ta.value.slice(0, pos), after = ta.value.slice(pos);
-  const newBefore = sugKind === "/" ? `/${it.label} ` : before.replace(/@([^\s@]*)$/, `@${it.label} `);
+  if (sugKind === "/") { runCommand(it.label); return; }
+  const newBefore = sugKind === "#" ? before.replace(/#([^\s#]*)$/, `#${it.label} `) : before.replace(/@([^\s@]*)$/, `@${it.label} `);
   ta.value = newBefore + after; ta.selectionStart = ta.selectionEnd = newBefore.length;
   if (it.m) chosenMentions.push(it.m);
   $("#suggest").style.display = "none"; sugItems = []; ta.focus();
@@ -909,7 +924,12 @@ $("#cmic").addEventListener("pointerdown", async e => {
   $("#cmic").classList.remove("on");
   if (talking) { talking = false; level = 0; send({ type: "talk_end" }); }
 }));
-$("#cin").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat(); } });
+$("#cin").addEventListener("keydown", e => {
+  if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;   // 쉬프트+엔터 = 줄바꿈
+  e.preventDefault();
+  const v = $("#cin").value.trim(), c = v.startsWith("/") && !v.includes(" ") ? (CMD_ALIAS[v.slice(1).toLowerCase()] || v.slice(1).toLowerCase()) : "";
+  if (c && COMMANDS.some(([n]) => n === c)) runCommand(c); else sendChat();
+});
 $("#cin").addEventListener("input", e => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, innerHeight * .3) + "px"; });
 $("#cimg").onclick = () => $("#cfile").click();
 $("#cfile").onchange = e => {
