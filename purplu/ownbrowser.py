@@ -24,14 +24,14 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 
 ROOT = Path(__file__).resolve().parent.parent
 PAGE_JS = (ROOT / "chrome_extension" / "page.js").read_text(encoding="utf-8")
-HOME = "https://www.google.com/"   # main() 에서 퍼플루 처음 화면(web/start.html)으로 바뀐다
+HOME = "https://www.google.com/"
 
 
-def start_page(light: bool, accent: str) -> str:
-    from urllib.parse import urlencode
-    u = QUrl.fromLocalFile(str(ROOT / "purplu" / "web" / "start.html"))
-    u.setQuery(urlencode({"color": accent, "dark": "0" if light else "1"}))
-    return u.toString(QUrl.FullyEncoded)
+def mix(a: str, b: str, t: float) -> str:
+    """색 a 에 색 b 를 t 만큼 섞기 (윗줄을 내 색으로 옅게 물들일 때)."""
+    ca, cb = QColor(a), QColor(b)
+    return QColor(round(ca.red() + (cb.red() - ca.red()) * t), round(ca.green() + (cb.green() - ca.green()) * t),
+                  round(ca.blue() + (cb.blue() - ca.blue()) * t)).name()
 
 
 def _out(obj):
@@ -132,11 +132,6 @@ class UrlBox(QLineEdit):
 
     def show_url(self, u: QUrl):
         self.full = u.toString()
-        if u.scheme() == "file":   # 처음 화면이면 주소창은 비워 둔다
-            self.full = ""
-            if not self.hasFocus():
-                self.setText("")
-            return
         if not self.hasFocus():
             host = u.host().removeprefix("www.")
             self.setText(host + (u.path() if u.path() not in ("", "/") else "") if host else self.full)
@@ -165,8 +160,6 @@ class Browser(QWidget):
         ua = self.profile.httpUserAgent()
         self.profile.setHttpUserAgent(" ".join(t for t in ua.split() if not t.startswith("QtWebEngine")))
         self.page_ = QWebEnginePage(self.profile, self)
-        from PySide6.QtWebEngineCore import QWebEngineSettings
-        self.page_.settings().setAttribute(QWebEngineSettings.LocalContentCanAccessRemoteUrls, True)   # 처음 화면의 사이트 아이콘
         self.view = QWebEngineView()
         self.view.setPage(self.page_)
         # 새 창·새 탭으로 열려는 링크도 이 탭 하나에서 (탭이 늘어나지 않게)
@@ -174,14 +167,16 @@ class Browser(QWidget):
 
         bg, fg, dim, field, line = (("#FFFFFF", "#18181B", "#71717A", "#F4F4F5", "#E4E4E7") if light
                                     else ("#18181B", "#F4F4F5", "#A1A1AA", "#27272A", "#3F3F46"))
+        # 윗줄만 내 색: 바탕은 아주 옅게, 주소창은 조금 더, 아이콘은 내 색
+        top, field, hover = mix(bg, accent, 0.06 if light else 0.12), mix(bg, accent, 0.13 if light else 0.22), mix(bg, accent, 0.22 if light else 0.32)
         self.setStyleSheet(f"Browser {{ background:{bg}; }}")
         bar = QFrame()
         bar.setObjectName("bar")
-        bar.setStyleSheet(f"QFrame#bar {{ background:{bg}; }}")
+        bar.setStyleSheet(f"QFrame#bar {{ background:{top}; }}")
         h = QHBoxLayout(bar)
         h.setContentsMargins(8, 7, 8, 7)
         h.setSpacing(2)
-        mk = lambda kind, tip: NavButton(kind, tip, fg, field if light else line, accent)   # noqa: E731
+        mk = lambda kind, tip: NavButton(kind, tip, accent, hover, accent)   # noqa: E731
         self.b_back, self.b_fwd, self.b_reload = mk("back", "뒤로"), mk("forward", "앞으로"), mk("reload", "새로고침")
         self.b_back.clicked.connect(self.view.back)
         self.b_fwd.clicked.connect(self.view.forward)
@@ -205,7 +200,7 @@ class Browser(QWidget):
         self.url.installEventFilter(self)
         self._pill = pill
         pl.addWidget(self.url, 1)
-        self.b_home = mk("home", "처음 화면")
+        self.b_home = mk("home", "처음 화면 (구글)")
         self.b_home.setFixedSize(26, 26)
         self.b_home.clicked.connect(lambda: self.view.setUrl(QUrl(HOME)))
         pl.addWidget(self.b_home)
@@ -429,8 +424,6 @@ def main():
     app = QApplication(sys.argv)
     light = "--dark" not in sys.argv
     accent = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--color=")), "#8B5CF6")
-    global HOME
-    HOME = start_page(light, accent)
     w = Browser(light, accent)
     w.resize(640, 420)
     w.move(-20000, -20000)   # 대화창에 끼워지기 전엔 화면 밖에서 그려 둔다
