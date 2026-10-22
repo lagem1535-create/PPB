@@ -347,6 +347,16 @@ class IconButton(QPushButton):
                 p.setBrush(accent)
             p.drawPath(path)
             p.drawLine(QPointF(cx, cy + 2), QPointF(cx, cy + 8))
+        elif k == "face":
+            path = QPainterPath()
+            path.moveTo(cx - 7, cy + 6)
+            path.cubicTo(cx - 7, cy - 9, cx + 7, cy - 9, cx + 7, cy + 6)
+            path.closeSubpath()
+            p.drawPath(path)
+            p.setBrush(col)
+            p.drawEllipse(QPointF(cx - 2.6, cy), 1.3, 1.6)
+            p.drawEllipse(QPointF(cx + 2.6, cy), 1.3, 1.6)
+            p.setBrush(Qt.NoBrush)
         elif k == "term":     # >_ (터미널)
             p.drawRoundedRect(QRectF(cx - 8, cy - 6.5, 16, 13), 2.5, 2.5)
             p.drawLine(QPointF(cx - 4.5, cy - 2.5), QPointF(cx - 1.5, cy))
@@ -492,7 +502,29 @@ class ChatPanel(QWidget):
         self.term, self._term_backlog = None, []
         from .tools import shell as _shell
         _shell.listeners.append(self._purplu_ran)
-        lay.addWidget(self.top, 34)
+        # 위쪽 칸 맨 위: 퍼플루 · 브라우저 · 터미널 고르기
+        self.topwrap = QWidget()
+        tw = QVBoxLayout(self.topwrap)
+        tw.setContentsMargins(0, 0, 0, 0)
+        tw.setSpacing(0)
+        self.switch = QFrame()
+        self.switch.setObjectName("switch")
+        sw = QHBoxLayout(self.switch)
+        sw.setContentsMargins(8, 4, 8, 2)
+        sw.setSpacing(2)
+        self.btn_face = IconButton("face", "퍼플루")
+        self.btn_face.clicked.connect(lambda: self._show_top(0))
+        self.btn_web = IconButton("web", "퍼플루 브라우저")
+        self.btn_web.clicked.connect(lambda: self._show_top(1))
+        self.btn_term = IconButton("term", "터미널")
+        self.btn_term.clicked.connect(lambda: self._show_top(2))
+        for b in (self.btn_face, self.btn_web, self.btn_term):
+            sw.addWidget(b)
+        sw.addStretch(1)
+        self.btn_face.active = True
+        tw.addWidget(self.switch)
+        tw.addWidget(self.top, 1)
+        lay.addWidget(self.topwrap, 34)
         self._lay = lay
         self._web_hwnd.connect(self._embed_web)
         self._web_used.connect(lambda: self._show_web(True, auto=True))
@@ -527,10 +559,6 @@ class ChatPanel(QWidget):
         head.addWidget(self.conv, 0)
         head.addWidget(self.status)
         head.addStretch(1)
-        self.btn_web = IconButton("web", "위쪽을 퍼플루 ↔ 퍼플루 브라우저로 바꾸기")
-        self.btn_web.clicked.connect(lambda: self._show_top(0 if self._top_index() == 1 else 1))
-        self.btn_term = IconButton("term", "위쪽을 퍼플루 ↔ 터미널로 바꾸기")
-        self.btn_term.clicked.connect(lambda: self._show_top(0 if self._top_index() == 2 else 2))
         btn_new = IconButton("new", "새 대화")
         btn_new.clicked.connect(self._new_chat)
         self.btn_mini = IconButton("mini", "작게 / 크게")
@@ -542,7 +570,7 @@ class ChatPanel(QWidget):
         btn_close = IconButton("close", "닫기 (Ctrl+Alt+C로 다시 열기)")
         btn_close.clicked.connect(self._close_clicked)
         head.setSpacing(2)
-        for b in (self.btn_web, self.btn_term, btn_new, self.btn_mini, self.btn_pin, btn_set):
+        for b in (btn_new, self.btn_mini, self.btn_pin, btn_set):
             head.addWidget(b)
         sep = QFrame()
         sep.setFixedSize(1, 16)
@@ -660,6 +688,8 @@ class ChatPanel(QWidget):
         c = s.get("color") or "#8B5CF6"
         cc = s.get("chat_color") or c
         self._cc = cc
+        if getattr(self, "switch", None) is not None:
+            self.switch.setStyleSheet(f"QFrame#switch {{ background:{P['face_bg']}; }}")
         if getattr(self, "term", None) is not None:
             self.term.apply_colors(pal(), cc)
         self.setStyleSheet(f"""
@@ -686,7 +716,7 @@ class ChatPanel(QWidget):
             QScrollBar:vertical {{ width:6px; background:transparent; }}
             QScrollBar::handle:vertical {{ background:{P['line']}; border-radius:3px; }}
         """)
-        self.top.setVisible((s.get("pc_layout", "stack") != "full" or self._top_index() != 0) and not self.mini)
+        self.topwrap.setVisible((s.get("pc_layout", "stack") != "full" or self._top_index() != 0) and not self.mini)
         idx = self.model.findData(s.get("live_model"))
         if idx >= 0:
             self.model.setCurrentIndex(idx)
@@ -1065,16 +1095,16 @@ class ChatPanel(QWidget):
         if which == self.top.currentIndex():
             return
         self.top.setCurrentWidget(self.face if which == 0 else self.web_holder if which == 1 else self.term)
-        for b, n in ((self.btn_web, 1), (self.btn_term, 2)):
+        for b, n in ((self.btn_face, 0), (self.btn_web, 1), (self.btn_term, 2)):
             b.active = which == n
             b.update()
         self._lay.setStretch(0, 34 if which == 0 else 60)   # 브라우저·터미널일 땐 위쪽을 더 크게
         if which == 0:
-            self.top.setVisible(config.settings().get("pc_layout", "stack") != "full" and not self.mini)
+            self.topwrap.setVisible(config.settings().get("pc_layout", "stack") != "full" and not self.mini)
             return
         if self.mini:
             self._toggle_mini()
-        self.top.show()
+        self.topwrap.show()
         if auto and not self.isVisible():
             self.open(False)
         if which == 1:
@@ -1127,11 +1157,11 @@ class ChatPanel(QWidget):
         self.btn_mini.update()
         if self.mini:
             self._big_geom = self.geometry()
-            self.top.hide()
+            self.topwrap.hide()
             area = QGuiApplication.primaryScreen().availableGeometry()
             self.setGeometry(area.right() - 400, area.bottom() - 290, 380, 270)
         else:
-            self.top.setVisible(config.settings().get("pc_layout", "stack") != "full" or self._top_index() != 0)
+            self.topwrap.setVisible(config.settings().get("pc_layout", "stack") != "full" or self._top_index() != 0)
             if getattr(self, "_big_geom", None):
                 self.setGeometry(self._big_geom)
         self._render()

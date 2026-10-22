@@ -159,6 +159,7 @@ class Browser(QWidget):
         # 'QtWebEngine' 이 보이면 구글이 "크롬을 쓰세요" 창을 띄운다 → 보통 크롬처럼
         ua = self.profile.httpUserAgent()
         self.profile.setHttpUserAgent(" ".join(t for t in ua.split() if not t.startswith("QtWebEngine")))
+        self._hide_google_footer()
         self.page_ = QWebEnginePage(self.profile, self)
         self.view = QWebEngineView()
         self.view.setPage(self.page_)
@@ -259,6 +260,37 @@ class Browser(QWidget):
         hist = self.page_.history()
         self.b_back.setEnabled(hist.canGoBack())
         self.b_fwd.setEnabled(hist.canGoForward())
+
+    def _hide_google_footer(self):
+        """구글 화면 맨 아래 '대한민국 · 광고 · 비즈니스 · Google 검색의 작동 방식' 줄을 안 보이게."""
+        from PySide6.QtWebEngineCore import QWebEngineScript
+        js = r"""(() => {
+  if (!/(^|\.)google\.[a-z.]+$/.test(location.hostname)) return;
+  const st = document.createElement("style");
+  st.textContent = "[role=contentinfo], #footcnt, .fbar, .c93Gbe { display:none !important; }";
+  (document.head || document.documentElement).appendChild(st);
+  const hide = () => {
+    const a = [...document.querySelectorAll("a")].find(x => /검색의 작동 방식|How Search works/.test(x.textContent));
+    if (!a) return;
+    let el = a;   // 그 링크를 감싼 아래쪽 띠 전체 (너무 큰 덩어리까지는 안 올라감)
+    while (el.parentElement && el.parentElement !== document.body && el.parentElement.getBoundingClientRect().height < 180) el = el.parentElement;
+    el.style.setProperty("display", "none", "important");
+  };
+  // "Chrome을 선택하세요" 창은 '사용 안함'을 눌러 닫는다 (한 번 닫으면 구글이 기억함)
+  const noChrome = () => {
+    const b = [...document.querySelectorAll("button, [role=button], a")].find(x => /^(Chrome 사용 안함|사용 안함|No thanks)$/.test((x.textContent || "").trim()));
+    if (b) b.click();
+  };
+  const both = () => { hide(); noChrome(); };
+  both(); setTimeout(both, 800); setTimeout(both, 2500); setTimeout(both, 5000);
+})();"""
+        sc = QWebEngineScript()
+        sc.setName("purplu-hide-google-footer")
+        sc.setSourceCode(js)
+        sc.setInjectionPoint(QWebEngineScript.DocumentReady)
+        sc.setWorldId(QWebEngineScript.ApplicationWorld)
+        sc.setRunsOnSubFrames(False)
+        self.profile.scripts().insert(sc)
 
     # ---- 명령 ----
     def handle(self, msg: dict):
