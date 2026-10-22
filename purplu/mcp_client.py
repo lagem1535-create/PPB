@@ -24,6 +24,59 @@ listeners = []                      # 상태가 바뀌면 부를 함수 (설정�
 _lock = threading.Lock()
 
 
+# ---------------- 예시 (설정 > MCP > 예시에서 고르기) ----------------
+# ask: "folder" 면 폴더를 고르게, "token" 이면 토큰을 묻는다 ({folder}·{token} 자리에 들어감)
+PRESETS = [
+    {"name": "파일", "icon": "📁", "color": "#F59E0B", "by": "MCP (Anthropic)",
+     "desc": "고른 폴더의 파일을 읽고, 쓰고, 찾아요", "ask": "folder",
+     "server": {"type": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "{folder}"]}},
+    {"name": "기억 노트", "icon": "🧠", "color": "#EC4899", "by": "MCP (Anthropic)",
+     "desc": "사람·일·좋아하는 것을 오래 기억해요",
+     "server": {"type": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-memory"],
+                "env": {"MEMORY_FILE_PATH": str(config.DATA_DIR / "mcp_memory.jsonl")}}},
+    {"name": "차근차근 생각", "icon": "💭", "color": "#8B5CF6", "by": "MCP (Anthropic)",
+     "desc": "어려운 문제를 단계별로 나눠서 생각해요",
+     "server": {"type": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]}},
+    {"name": "웹 자동 조작", "icon": "🎭", "color": "#2EAD33", "by": "Microsoft (Playwright)",
+     "desc": "브라우저를 열고 눌러 보고 입력하며 웹 일을 해요",
+     "server": {"type": "stdio", "command": "npx", "args": ["-y", "@playwright/mcp@latest"]}},
+    {"name": "개발 문서", "icon": "📚", "color": "#10B981", "by": "Upstash (Context7)",
+     "desc": "라이브러리의 최신 사용법·예제 코드를 찾아요",
+     "server": {"type": "http", "url": "https://mcp.context7.com/mcp"}},
+    {"name": "GitHub", "icon": "G", "color": "#24292F", "by": "GitHub",
+     "desc": "내 저장소·이슈·풀 리퀘스트를 보고 다뤄요", "ask": "token",
+     "token_help": "GitHub > Settings > Developer settings > Personal access tokens 에서 만든 토큰",
+     "server": {"type": "http", "url": "https://api.githubcopilot.com/mcp/", "headers": {"Authorization": "Bearer {token}"}}},
+    {"name": "Notion", "icon": "N", "color": "#111111", "by": "Notion",
+     "desc": "노션 페이지를 찾고, 읽고, 고쳐요", "ask": "token",
+     "token_help": "notion.so/profile/integrations 에서 만든 연결(Integration)의 토큰 (ntn_…). 쓸 페이지에 그 연결을 초대해 두세요",
+     "server": {"type": "stdio", "command": "npx", "args": ["-y", "@notionhq/notion-mcp-server"], "env": {"NOTION_TOKEN": "{token}"}}},
+    {"name": "Supabase", "icon": "⚡", "color": "#3ECF8E", "by": "Supabase",
+     "desc": "데이터베이스·표를 살펴봐요 (읽기만)", "ask": "token",
+     "token_help": "supabase.com/dashboard/account/tokens 에서 만든 Access token",
+     "server": {"type": "stdio", "command": "npx", "args": ["-y", "@supabase/mcp-server-supabase@latest", "--read-only"],
+                "env": {"SUPABASE_ACCESS_TOKEN": "{token}"}}},
+    {"name": "Figma", "icon": "F", "color": "#A259FF", "by": "Figma",
+     "desc": "열어 둔 피그마 디자인을 읽고 코드로 옮겨요 (피그마 앱에서 Dev Mode MCP 켜기)",
+     "server": {"type": "http", "url": "http://127.0.0.1:3845/mcp"}},
+    {"name": "시험용", "icon": "🧪", "color": "#64748B", "by": "MCP (Anthropic)",
+     "desc": "MCP가 잘 되는지 맛보기 (더하기·따라 말하기 등)",
+     "server": {"type": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-everything"]}},
+]
+
+
+def from_preset(p: dict, folder: str = "", token: str = "") -> dict:
+    fill = lambda v: v.replace("{folder}", folder).replace("{token}", token) if isinstance(v, str) else v   # noqa: E731
+    sv = json.loads(json.dumps(p["server"]))
+    sv["args"] = [fill(a) for a in sv.get("args", [])] if "args" in sv else sv.get("args")
+    for key in ("env", "headers"):
+        if key in sv:
+            sv[key] = {k: fill(v) for k, v in sv[key].items()}
+    if sv.get("args") is None:
+        sv.pop("args", None)
+    return {"name": p["name"], "enabled": True, **sv}
+
+
 # ---------------- 저장 ----------------
 def load() -> list[dict]:
     try:
@@ -135,7 +188,7 @@ async def _serve(name: str, s: dict):
             async with _transport(s) as streams:
                 read, write = streams[0], streams[1]
                 async with ClientSession(read, write) as sess:
-                    await asyncio.wait_for(sess.initialize(), 40)
+                    await asyncio.wait_for(sess.initialize(), 150)   # npx 는 처음에 내려받느라 1분 가까이 걸린다
                     tools = (await sess.list_tools()).tools
                     status[name] = {"state": "ok", "error": "", "tools": tools}
                     _changed()

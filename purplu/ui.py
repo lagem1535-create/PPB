@@ -397,8 +397,8 @@ class App:
             self.chat_window = ChatPanel(self.brain, blob_icon(None, False), open_settings=self.open_settings)
         self.chat_window.open(activate)
 
-    def open_settings(self):
-        self.settings_window.open()
+    def open_settings(self, tab=None):
+        self.settings_window.open(tab)
 
     def toggle_meeting(self):
         r = recorder.stop() if recorder.recording else recorder.start("회의")

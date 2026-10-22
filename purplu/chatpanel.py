@@ -12,7 +12,7 @@ import threading
 import time
 from ctypes import wintypes
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (QColor, QConicalGradient, QCursor, QFont, QGuiApplication, QLinearGradient, QPainter,
                            QPainterPath, QPen, QRadialGradient)
 from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QListWidget,
@@ -44,6 +44,7 @@ COMMANDS = [
     ("top", "언제나 맨 위로 켜기/끄기"),
     ("image", "그림 붙이기"),
     ("skills", "스킬 목록 (# 으로도 불러요)"),
+    ("mcp", "MCP 서버 보기 · 켜고 끄기 · 예시 추가"),
     ("close", "대화창 닫기"),
 ]
 CMD_ALIAS = {"terminal": "term", "터미널": "term", "browser": "web", "브라우저": "web", "setting": "settings", "설정": "settings", "새대화": "new", "clear": "new"}
@@ -1388,12 +1389,56 @@ class ChatPanel(QWidget):
             config.save_settings(pc_chat_on_top=not s.get("pc_chat_on_top", True))
         elif name == "image":
             self._attach()
+        elif name == "mcp":
+            return self._mcp_menu()
         elif name == "skills":
             self.input.setPlainText("#")
             self.input.moveCursor(self.input.textCursor().MoveOperation.End)
         elif name == "close":
             self._close_clicked()
         self.input.setFocus()
+
+    def _mcp_menu(self):
+        """/mcp: 붙인 MCP 서버를 보고 켜고 끄기, 예시 추가, 다시 연결, 설정 열기 (Claude 의 /mcp 처럼)."""
+        from . import mcp_client
+        m = QMenu(self)
+        servers = mcp_client.load()
+        head = m.addAction(f"MCP 서버 {len(servers)}개")
+        head.setEnabled(False)
+        for sv in servers:
+            st = mcp_client.status.get(sv["name"], {})
+            state = {"ok": f"● 도구 {len(st.get('tools', []))}개", "connecting": "… 연결 중", "error": "⚠ 오류"}.get(st.get("state"), "○ 꺼짐")
+            act = m.addAction(f"{sv['name']}    {state}")
+            act.setCheckable(True)
+            act.setChecked(sv.get("enabled", True))
+            act.setToolTip(st.get("error", ""))
+
+            def flip(on, name=sv["name"]):
+                rows = mcp_client.load()
+                for x in rows:
+                    if x["name"] == name:
+                        x["enabled"] = on
+                mcp_client.save(rows)
+            act.toggled.connect(flip)
+        if not servers:
+            m.addAction("(아직 없어요 — 아래 예시에서 골라 보세요)").setEnabled(False)
+        m.addSeparator()
+        ex = m.addMenu("✨ 예시에서 추가")
+        have = {x["name"] for x in servers}
+        for p in mcp_client.PRESETS:
+            a = ex.addAction(f"{p['name']}  —  {p['desc']}" + ("   (추가됨)" if p["name"] in have else ""))
+            a.triggered.connect(lambda _=False, p=p: self._mcp_add_preset(p))
+        m.addAction("⟳  다시 연결", mcp_client.reload)
+        m.addAction("⚙  MCP 설정 열기", lambda: self.open_settings("🔌 MCP"))
+        m.exec(self.input.mapToGlobal(self.input.rect().topLeft()) - QPoint(0, m.sizeHint().height()))
+        self.input.setFocus()
+
+    def _mcp_add_preset(self, p):
+        from .settings_window import add_preset
+        sv = add_preset(self, p)
+        if sv:
+            self.turn["results"].append(f"🔌 MCP '{html.escape(sv['name'])}' 추가했어요. 연결하는 중… (처음엔 30초쯤 걸릴 수 있어요)")
+            self._schedule()
 
     def _ask_skills(self):
         def work():

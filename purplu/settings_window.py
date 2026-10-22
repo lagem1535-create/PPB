@@ -92,6 +92,31 @@ class Toggle(QCheckBox):
         p.end()
 
 
+def add_preset(parent, p) -> dict | None:
+    """예시 MCP 하나를 추가 (폴더·토큰이 필요하면 물어본다). 설정창과 대화창의 /mcp 가 같이 쓴다."""
+    import shutil
+    from PySide6.QtWidgets import QFileDialog
+    from . import mcp_client
+    if p["server"].get("command") == "npx" and not shutil.which("npx"):
+        QMessageBox.information(parent, "MCP", "이 예시는 Node.js 가 있어야 해요. nodejs.org 에서 설치한 뒤 다시 해 주세요.")
+        return None
+    folder = token = ""
+    if p.get("ask") == "folder":
+        folder = QFileDialog.getExistingDirectory(parent, "퍼플루가 다룰 폴더 고르기", "D:\\")
+        if not folder:
+            return None
+        folder = folder.replace("/", "\\")
+    if p.get("ask") == "token":
+        token, ok = QInputDialog.getText(parent, f"{p['name']} 토큰", (p.get("token_help") or "토큰") + ":\n(이 PC에만 저장돼요)",
+                                         QLineEdit.Password)
+        if not ok or not token.strip():
+            return None
+        token = token.strip()
+    sv = mcp_client.from_preset(p, folder, token)
+    mcp_client.save([x for x in mcp_client.load() if x["name"] != sv["name"]] + [sv])
+    return sv
+
+
 class SettingsWindow(QWidget):
     _mcp_status = Signal()   # MCP 서버 상태가 바뀜 (다른 스레드 → 화면)
 
@@ -105,6 +130,7 @@ class SettingsWindow(QWidget):
         self.setStyleSheet(style())
         self.resize(760, 560)
         tabs = QTabWidget()
+        self.tabs = tabs
         tabs.addTab(self._chat_tab(), "💬 대화")
         tabs.addTab(self._memo_tab(), "📝 메모")
         tabs.addTab(self._voice_tab(), "🔊 목소리")
@@ -116,8 +142,15 @@ class SettingsWindow(QWidget):
         lay.setContentsMargins(14, 14, 14, 14)
         lay.addWidget(tabs)
 
-    def open(self, tab: int | None = None):
+    def open(self, tab: int | str | None = None):
         config.load()
+        if isinstance(tab, bool):   # 메뉴에서 부르면 checked(False)가 따라올 수 있다
+            tab = None
+        if isinstance(tab, str):   # 예: "🔌 MCP"
+            names = [self.tabs.tabText(i) for i in range(self.tabs.count())]
+            tab = next((i for i, n in enumerate(names) if tab in n), None)
+        if tab is not None:
+            self.tabs.setCurrentIndex(tab)
         self._fill_settings()
         self.refresh_conversations()
         self.refresh_memos()
@@ -794,6 +827,148 @@ class SettingsWindow(QWidget):
     MCP_KINDS = [("stdio", "명령어로 실행 (stdio)"), ("http", "주소 (HTTP)"), ("sse", "주소 (SSE)")]
 
     def _mcp_tab(self):
+        """MCP: [둘러보기] 예시 카드 (Claude 커넥터처럼) / [내 서버] 추가한 서버 고치기."""
+        from PySide6.QtWidgets import QStackedWidget
+        outer = QWidget()
+        ol = QVBoxLayout(outer)
+        ol.setContentsMargins(0, 0, 0, 0)
+        seg = QHBoxLayout()
+        self.mcp_seg = []
+        for i, text in enumerate(("둘러보기", "내 서버")):
+            b = QPushButton(text, objectName="plain")
+            b.setCheckable(True)
+            b.clicked.connect(lambda _=False, i=i: self._mcp_page(i))
+            self.mcp_seg.append(b)
+            seg.addWidget(b)
+        seg.addStretch(1)
+        ol.addLayout(seg)
+        self.mcp_stack = QStackedWidget()
+        self.mcp_stack.addWidget(self._mcp_gallery())
+        self.mcp_stack.addWidget(self._mcp_servers())
+        ol.addWidget(self.mcp_stack, 1)
+        self._mcp_page(0)
+        return outer
+
+    def _mcp_page(self, i):
+        self.mcp_stack.setCurrentIndex(i)
+        for k, b in enumerate(self.mcp_seg):
+            b.setChecked(k == i)
+            b.setObjectName("" if k == i else "plain")
+            b.style().unpolish(b)
+            b.style().polish(b)
+
+    def _mcp_gallery(self):
+        from PySide6.QtWidgets import QGridLayout
+        from . import mcp_client
+        light = config.settings().get("theme") == "light"
+        card_bg, line, dim, plus_bg = (("#FFFFFF", "#E9E5F5", "#71717A", "#FFFFFF") if light
+                                       else ("#241640", "#3B2A63", "#A1A1AA", "#2E1F4F"))
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
+        page = QWidget()
+        page.setObjectName("setpage")
+        v = QVBoxLayout(page)
+        v.setContentsMargins(4, 6, 8, 8)
+        head = QLabel("예시 MCP  ·  + 를 누르면 퍼플루가 바로 쓸 수 있어요")
+        head.setStyleSheet("font-weight:700; font-size:11pt;")
+        v.addWidget(head)
+        grid = QGridLayout()
+        grid.setSpacing(10)
+        self.mcp_cards = {}
+        for n, p in enumerate(mcp_client.PRESETS):
+            card = QFrame()
+            card.setObjectName("mcpcard")
+            card.setStyleSheet(f"QFrame#mcpcard {{ background:{card_bg}; border:1px solid {line}; border-radius:14px; }}"
+                               f"QFrame#mcpcard QLabel {{ background:transparent; border:none; }}")
+            h = QHBoxLayout(card)
+            h.setContentsMargins(14, 14, 12, 14)
+            h.setSpacing(12)
+            icon = QLabel(p["icon"])
+            icon.setFixedSize(46, 46)
+            icon.setAlignment(Qt.AlignCenter)
+            emoji = len(p["icon"]) == 1 and ord(p["icon"]) > 0x2000
+            icon.setStyleSheet(f"QLabel {{ background:{p['color'] if not emoji else card_bg}; color:white; border:1px solid {line};"
+                               f" border-radius:12px; font-size:{'20pt' if emoji else '17pt'}; font-weight:800; }}")
+            h.addWidget(icon, 0, Qt.AlignTop)
+            col = QVBoxLayout()
+            col.setSpacing(2)
+            name = QLabel(p["name"])
+            name.setStyleSheet("font-size:11pt; font-weight:700;")
+            desc = QLabel(p["desc"])
+            desc.setWordWrap(True)
+            desc.setStyleSheet(f"color:{dim if light else '#D4D4D8'}; font-size:9.5pt;")
+            by = QLabel(f"제작: {p['by']}")
+            by.setStyleSheet(f"color:{dim}; font-size:9pt;")
+            state = QLabel("")
+            state.setStyleSheet(f"color:{dim}; font-size:8.5pt;")
+            for wdg in (name, desc, by, state):
+                col.addWidget(wdg)
+            col.addStretch(1)
+            h.addLayout(col, 1)
+            btn = QPushButton("+")
+            btn.setFixedSize(32, 32)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda _=False, p=p: self._card_clicked(p))
+            h.addWidget(btn, 0, Qt.AlignTop)
+            grid.addWidget(card, n // 2, n % 2)
+            self.mcp_cards[p["name"]] = (btn, state, plus_bg, line)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        v.addLayout(grid)
+        note = QLabel("서버는 이 PC에서 프로그램을 실행하니 믿을 수 있는 것만 추가하세요. 처음 추가하면 내려받느라 30초쯤 걸려요.\n"
+                      "토큰은 이 PC(data\\mcp.json)에만 저장돼요. 직접 만들려면 위의 '내 서버'에서.")
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color:{dim}; font-size:9pt; margin-top:6px;")
+        v.addWidget(note)
+        v.addStretch(1)
+        area.setWidget(page)
+        return area
+
+    def _refresh_cards(self):
+        from . import mcp_client
+        have = {x["name"]: x for x in mcp_client.load()}
+        for name, (btn, state, plus_bg, line) in getattr(self, "mcp_cards", {}).items():
+            added = name in have
+            btn.setText("✓" if added else "+")
+            btn.setToolTip("추가됨 (누르면 내 서버에서 보기·지우기)" if added else "추가하기")
+            btn.setStyleSheet(
+                "QPushButton { background:#BBF7D0; color:#15803D; border:none; border-radius:9px; font-size:13pt; font-weight:800; padding:0; }"
+                if added else
+                f"QPushButton {{ background:{plus_bg}; color:#71717A; border:1px solid {line}; border-radius:9px; font-size:15pt; font-weight:400; padding:0; }}"
+                f"QPushButton:hover {{ border-color:#8B5CF6; color:#8B5CF6; }}")
+            st = mcp_client.status.get(name, {})
+            if not added:
+                state.setText("")
+            elif not have[name].get("enabled", True):
+                state.setText("○ 꺼 둠")
+            else:
+                state.setText(self._mcp_state_text(st or {"state": "connecting"}))
+            color = {"ok": "#16A34A", "error": "#DC2626"}.get(st.get("state") if added else "", "#A1A1AA")
+            state.setStyleSheet(f"color:{color}; font-size:8.5pt;")
+
+    def _card_clicked(self, p):
+        from PySide6.QtWidgets import QMenu
+        from . import mcp_client
+        if any(x["name"] == p["name"] for x in mcp_client.load()):
+            m = QMenu(self)
+            m.addAction("내 서버에서 보기", lambda: (self._mcp_page(1), self._select_mcp(p["name"])))
+            m.addAction("지우기", lambda: (mcp_client.save([x for x in mcp_client.load() if x["name"] != p["name"]]), self.refresh_mcp()))
+            btn = self.mcp_cards[p["name"]][0]
+            m.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
+            return
+        if add_preset(self, p):
+            self._mcp_name = p["name"]
+            self.refresh_mcp()
+
+    def _select_mcp(self, name):
+        self._mcp_name = name
+        self.refresh_mcp()
+        item = next((self.mcp_list.item(i) for i in range(self.mcp_list.count()) if self.mcp_list.item(i).data(Qt.UserRole) == name), None)
+        if item:
+            self.mcp_list.setCurrentItem(item)
+
+    def _mcp_servers(self):
         from . import mcp_client
         w = QWidget()
         self.mcp_list = QListWidget()
@@ -895,10 +1070,11 @@ class SettingsWindow(QWidget):
             if sv["name"] == self._mcp_name:
                 self.mcp_list.setCurrentItem(item)
         if not servers:
-            self.mcp_list.addItem("아직 없어요. '＋ 새 서버'나 'JSON 붙여넣기'로 추가하세요.")
+            self.mcp_list.addItem("아직 없어요.\n'둘러보기'에서 + 를 눌러 쉽게 추가해 보세요.")
         self.mcp_list.blockSignals(False)
         self.mcp_del.setEnabled(bool(self._mcp_name))
         self._show_mcp_info()
+        self._refresh_cards()
 
     def _show_mcp_info(self):
         from . import mcp_client
