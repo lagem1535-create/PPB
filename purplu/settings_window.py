@@ -1214,13 +1214,13 @@ class SettingsWindow(QWidget):
         self.qr = QLabel()
         guide = QLabel(
             "1. 갤럭시 탭을 PC와 같은 와이파이에 연결해요.\n"
-            "2. 탭의 카메라로 QR을 찍거나, 크롬에 위 주소를 입력해요.\n"
-            "3. 경고 없애기 (처음 한 번): 탭 크롬에서 http://" + local_ip() + ":"
-            + str(config.settings()["tablet_port"]) + "/ca.crt 를 열어 받은 뒤\n"
-            "   탭 설정 → 보안 및 개인정보 보호 → 기타 보안 설정 → 기기에 저장된 인증서 설치 → CA 인증서 → purplu-ca.crt\n"
-            "   (설치 전엔 '연결이 비공개로 설정되어 있지 않습니다' → 고급 → 계속 진행으로도 돼요.)\n"
+            "2. 탭의 카메라로 QR을 찍거나, 브라우저에 위 주소를 입력해요.\n"
+            "   → 경고 없이 바로 열려요 (크롬·삼성 인터넷·카카오톡 안 브라우저 모두). 글 채팅은 바로 돼요.\n"
+            "3. 목소리(마이크)도 쓰려면 처음 한 번 인증서 설치: 탭에서 http://" + local_ip() + ":"
+            + str(config.settings()["tablet_port"]) + "/setup 을 열고 안내대로\n"
+            "   (설치하면 다음부터 저절로 https 로 바뀌고 경고도 안 떠요. 카카오톡 안에서는 목소리만 안 돼요.)\n"
             "   PC와 같은 와이파이에서만 열려요. 다른 와이파이·인터넷에서는 막혀요.\n"
-            "4. 마이크 권한 허용 → 크롬 메뉴 ⋮ → '홈 화면에 추가'로 앱처럼 쓰기.\n\n"
+            "4. 크롬 메뉴 ⋮ → '홈 화면에 추가'로 앱처럼 쓰기.\n\n"
             "탭에서: 퍼플루를 꾹 누르고 있는 동안 말하고, 떼면 대답해요.\n"
             "            오른쪽 위 ⚙ 버튼(또는 마우스 우클릭)으로 설정·대화목록·메모를 열어요.\n\n"
             "안 될 때: Windows 방화벽 창이 뜨면 '개인 네트워크' 허용. 공유기의 '게스트 와이파이'는 안 돼요.")
@@ -1244,8 +1244,7 @@ class SettingsWindow(QWidget):
         return w
 
     def _refresh_tablet(self):
-        pages = getattr(self, "pages_link_fn", None)
-        url = (pages() if pages else "") or self.tablet_url_fn()
+        url = self.tablet_url_fn()   # 경고 없는 http 주소 (GitHub Pages 주소는 인증서를 설치해야 PC에 붙는다)
         self.tablet_url.setText(url)
         if self.local_url_fn:
             self.local_url.setText(f"이 PC 브라우저에서 시험해 보려면: {self.local_url_fn()}")

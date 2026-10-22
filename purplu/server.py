@@ -26,6 +26,9 @@ CERT = config.DATA_DIR / "tablet-cert.pem"
 KEY = config.DATA_DIR / "tablet-key.pem"
 
 
+SETUP_HTML = '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">\n<title>퍼플루 인증서</title><style>\nbody{font-family:system-ui,\'Malgun Gothic\',sans-serif;background:#120B22;color:#F5F3FF;margin:0;padding:22px;line-height:1.6}\nh1{font-size:22px;margin:0 0 6px}h2{font-size:16px;margin:22px 0 6px;color:#C4B5FD}.box{background:#1B1230;border-radius:14px;padding:14px 16px;margin:10px 0}\na.btn{display:inline-block;background:#8B5CF6;color:#fff;text-decoration:none;border-radius:12px;padding:10px 16px;font-weight:700;margin:6px 0}\nol{margin:6px 0;padding-left:20px}small{color:#A1A1AA}code{background:#2E1F4F;border-radius:6px;padding:1px 6px}\n</style></head><body>\n<h1>🔒 경고 없이 퍼플루 쓰기</h1>\n<p>지금 주소(http)는 <b>경고 없이</b> 열려요. 글 채팅·화면은 그대로 돼요.<br>\n<b>목소리(마이크)</b>까지 쓰려면 퍼플루 인증서를 이 기기에 <b>한 번만</b> 설치하세요. 그다음부터는 저절로 https로 바뀌고 경고도 안 떠요.</p>\n<a class="btn" href="/ca.crt">① 퍼플루 인증서 받기</a>\n<h2>갤럭시 탭 · 안드로이드</h2><div class="box"><ol>\n<li>위 단추로 <code>purplu-ca.crt</code> 를 받아요.</li>\n<li>설정 → <b>보안 및 개인정보 보호</b> → 기타 보안 설정 → <b>기기에 저장된 인증서 설치</b> → <b>CA 인증서</b> → 그래도 설치 → 받은 파일</li>\n<li>크롬을 완전히 껐다 켜고 이 주소를 다시 열면 끝!</li></ol>\n<small>안드로이드가 "네트워크가 모니터링될 수 있음" 알림을 띄울 수 있어요. 퍼플루 인증서는 이 PC의 퍼플루에만 쓰여요.</small></div>\n<h2>아이폰 · 아이패드</h2><div class="box"><ol>\n<li>사파리로 위 단추를 눌러 프로파일을 받아요 → 설정 → <b>프로파일이 다운로드됨</b> → 설치</li>\n<li>설정 → 일반 → 정보 → <b>인증서 신뢰 설정</b> → Purplu Local CA 켜기</li></ol></div>\n<h2>다른 Windows PC</h2><div class="box"><ol>\n<li>받은 파일을 두 번 눌러 → 인증서 설치 → 현재 사용자 → <b>신뢰할 수 있는 루트 인증 기관</b>에 넣기</li></ol></div>\n<h2>카카오톡 안에서 열 때</h2><div class="box">카카오톡 안의 브라우저는 설치한 인증서를 믿지 않아요 (안드로이드의 앱 보안 규칙).\n그래서 카카오톡에서는 <b>이 http 주소</b>로 글 채팅을 쓰고, 목소리는 오른쪽 위 ⋮ → <b>다른 브라우저로 열기</b>(크롬)에서 써 주세요.</div>\n<p><a class="btn" href="/">← 퍼플루로 돌아가기</a></p>\n</body></html>'
+
+
 def local_ip() -> str:
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -311,7 +314,12 @@ class TabletServer:
 
     @property
     def url(self) -> str:
-        """탭에서 열 주소 (마이크 때문에 https)."""
+        """탭에서 열 주소: http 라서 어떤 브라우저(카카오톡 안 포함)에서도 경고가 안 뜬다.
+        인증서를 설치한 기기면 페이지가 스스로 https 로 옮겨 가서 마이크도 쓴다."""
+        return f"http://{self.ip}:{self.port}"
+
+    @property
+    def secure_url(self) -> str:
         return f"https://{self.ip}:{self.https_port}"
 
     @property
@@ -369,10 +377,22 @@ class TabletServer:
             return self._deny(request)
         host = request.host.split(":")[0]
         print(f"탭 접속: {request.remote} → {request.scheme}://{request.host}{request.path}")  # 패드가 PC에 닿았는지 확인용
-        if request.secure or host in ("localhost", "127.0.0.1", "[::1]"):
-            return web.FileResponse(WEB_DIR / "tablet.html", headers={"Cache-Control": "no-store"})
-        # 다른 기기에서 http로 오면 마이크가 막히므로 https로 보낸다
-        raise web.HTTPFound(f"https://{host}:{self.https_port}/")
+        # http 로 와도 그대로 보여 준다 (경고 없음). 인증서를 믿는 기기면 페이지가 /probe 로 확인하고 https 로 옮겨 간다.
+        return web.FileResponse(WEB_DIR / "tablet.html", headers={"Cache-Control": "no-store"})
+
+    async def _probe(self, request):
+        """http 페이지가 'https 가 경고 없이 되나?'(= 인증서 설치됨) 확인하는 곳."""
+        if not self._allowed(request):
+            return self._deny(request)
+        origin = request.headers.get("Origin", "")
+        return web.json_response({"ok": True, "https_port": self.https_port},
+                                 headers={"Access-Control-Allow-Origin": origin or "*", "Cache-Control": "no-store"})
+
+    async def _setup(self, request):
+        """인증서 설치 안내 (갤럭시·아이폰·윈도우·카카오톡)."""
+        if not self._allowed(request):
+            return self._deny(request)
+        return web.Response(content_type="text/html", text=SETUP_HTML)
 
     def _run(self):
         asyncio.set_event_loop(self.loop)
@@ -388,6 +408,8 @@ class TabletServer:
             app.router.add_get("/img/{name}", self._img)
             app.router.add_get("/ca.crt", self._ca_file)
             app.router.add_get("/hello", self._hello)
+            app.router.add_get("/probe", self._probe)
+            app.router.add_get("/setup", self._setup)
             runner = web.AppRunner(app, access_log=None)
             self.loop.run_until_complete(runner.setup())
             # http (localhost용, 그리고 https로 안내) + https (탭용)

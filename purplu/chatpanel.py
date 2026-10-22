@@ -40,7 +40,7 @@ COMMANDS = [
     ("term", "위쪽을 퍼플루 ↔ 터미널로"),
     ("hide", "위 칸(퍼플루·브라우저·터미널) 숨기기 / 보이기"),
     ("model", "빠른 모델 ↔ 생각하는 모델"),
-    ("mini", "작은 모드 켜기/끄기"),
+    ("mini", "작게: 퍼플루만 보기 (꾹 눌러 말하기) / 크게"),
     ("pin", "오른쪽에 고정 / 풀기"),
     ("top", "언제나 맨 위로 켜기/끄기"),
     ("image", "그림 붙이기"),
@@ -487,7 +487,15 @@ class ChatPanel(QWidget):
         self.btn_top.clicked.connect(self._toggle_top)
         btn_new = IconButton("new", "새 대화")
         btn_new.clicked.connect(self._new_chat)
-        self.btn_mini = IconButton("mini", "작게 / 크게")
+        self.btn_restore = QPushButton("⤢", self)
+        self.btn_restore.setToolTip("크게 (대화창 다시 보기)")
+        self.btn_restore.setFixedSize(30, 30)
+        self.btn_restore.setCursor(Qt.PointingHandCursor)
+        self.btn_restore.setStyleSheet("QPushButton { background:rgba(0,0,0,90); color:white; border:none; border-radius:15px; font-size:13pt; font-weight:700; }"
+                                       "QPushButton:hover { background:rgba(0,0,0,150); }")
+        self.btn_restore.clicked.connect(self._toggle_mini)
+        self.btn_restore.hide()
+        self.btn_mini = IconButton("mini", "작게 (퍼플루만) / 크게")
         self.btn_mini.clicked.connect(self._toggle_mini)
         self.btn_pin = IconButton("pin", "오른쪽에 고정 / 풀기")
         self.btn_pin.clicked.connect(lambda: config.save_settings(pc_chat_pinned=not config.settings().get("pc_chat_pinned")))
@@ -1055,7 +1063,9 @@ class ChatPanel(QWidget):
     # ---------------- 위 칸 보이기 · 높이 ----------------
     def _top_visible(self) -> bool:
         s = config.settings()
-        if self.mini or s.get("pc_top_hidden"):
+        if self.mini:
+            return True   # 작게 = 퍼플루 얼굴만
+        if s.get("pc_top_hidden"):
             return False
         return s.get("pc_layout", "stack") != "full" or self._top_index() != 0
 
@@ -1127,20 +1137,46 @@ class ChatPanel(QWidget):
         self._web_embedded = hwnd
 
     def _toggle_mini(self):
-        """작은 모드: 얼굴을 숨기고 마지막 대화만, 창도 작게."""
+        """작게: 대화창은 숨기고 퍼플루 얼굴만 (꾹 누르면 말하기). 오른쪽 위 ⤢ 로 다시 크게."""
         self.mini = not self.mini
         self.btn_mini.active = self.mini
         self.btn_mini.update()
         if self.mini:
             self._big_geom = self.geometry()
-            self.topwrap.hide()
+            self._mini_prev = self._top_index()
+            if self._appbar:
+                self._release_space()   # 고정(자리 차지) 중이었으면 잠깐 풀기
+            self.body.hide()
+            self.switch.hide()
+            self.top.setCurrentWidget(self.face)
+            self.topwrap.show()
+            self.setMinimumSize(150, 130)
             area = QGuiApplication.primaryScreen().availableGeometry()
-            self.setGeometry(area.right() - 400, area.bottom() - 290, 380, 270)
+            self.setGeometry(area.right() - 276, area.bottom() - 250, 260, 230)
+            self._place_restore()
+            self.btn_restore.show()
+            self.btn_restore.raise_()
         else:
+            self.btn_restore.hide()
+            self.setMinimumSize(300, 220)
+            self.body.show()
+            self.switch.show()
+            prev = getattr(self, "_mini_prev", 0)
+            self.top.setCurrentWidget(self.face if prev == 0 else self.web_holder if prev == 1 else (self.term or self.face))
             self._apply_top()
             if getattr(self, "_big_geom", None):
                 self.setGeometry(self._big_geom)
+            if config.settings().get("pc_chat_pinned"):
+                self.apply_pin()
         self._render()
+
+    def _place_restore(self):
+        self.btn_restore.move(self.width() - self.btn_restore.width() - 8, 8)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if getattr(self, "mini", False) and hasattr(self, "btn_restore"):
+            self._place_restore()
 
     # ---------------- 지난 대화 ----------------
     def load_history(self):
@@ -1509,6 +1545,8 @@ class ChatPanel(QWidget):
         s = config.settings()
         self.btn_pin.active = bool(s.get("pc_chat_pinned"))
         self.btn_pin.update()
+        if self.mini:
+            return   # 작게 보는 동안은 고정 자리로 늘리지 않는다 (크게 하면 다시)
         if not s.get("pc_chat_pinned"):
             self._release_space()
             return

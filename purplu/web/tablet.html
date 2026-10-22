@@ -671,6 +671,14 @@ function applyColor() {
   document.body.classList.toggle("light", settings.theme === "light");
   document.querySelector('meta[name=theme-color]').content = settings.theme === "light" ? "#FAF8FF" : "#000000";
 }
+// http 로 열렸는데(경고 없는 주소) 이 기기가 퍼플루 인증서를 믿으면 → 조용히 https 로 (마이크를 쓰려면 https 여야 해서)
+(function upgradeIfTrusted() {
+  if (REMOTE || location.protocol !== "http:" || ["localhost", "127.0.0.1"].includes(location.hostname)) return;
+  const httpsPort = Number(location.port || 80) + 1;
+  fetch(`https://${location.hostname}:${httpsPort}/probe`, { cache: "no-store" })
+    .then(r => r.ok && location.replace(`https://${location.hostname}:${httpsPort}${location.pathname}${location.search}`))
+    .catch(() => {});   // 인증서가 없으면 그냥 http 로 (경고 없이, 글 채팅은 다 된다)
+})();
 function connect() {
   if (REMOTE && !PC) { showSetup(); return; }
   ws = new WebSocket(REMOTE ? `wss://${PC}/ws` : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
@@ -767,7 +775,13 @@ class Down extends AudioWorkletProcessor {
 registerProcessor("down", Down);`;
 async function ensureAudio() {
   if (ctx) { if (ctx.state === "suspended") await ctx.resume(); return; }
-  if (!window.isSecureContext || !navigator.mediaDevices) throw new Error("https 주소로 열어야 마이크를 쓸 수 있어요");
+  if (!window.isSecureContext || !navigator.mediaDevices) {
+    if (!REMOTE && location.protocol === "http:") {   // 경고 없는 http 주소: 마이크는 인증서를 한 번 설치하면 된다
+      if (confirm("목소리(마이크)는 퍼플루 인증서를 한 번 설치해야 쓸 수 있어요.\n글 채팅은 지금도 돼요.\n\n설치 방법을 볼까요?")) location.href = "/setup";
+      throw new Error("마이크는 인증서를 설치하면 쓸 수 있어요 (글 채팅은 지금도 돼요)");
+    }
+    throw new Error("https 주소로 열어야 마이크를 쓸 수 있어요");
+  }
   ctx = new AudioContext();
   const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
   await ctx.audioWorklet.addModule(url);
