@@ -138,6 +138,9 @@ class Brain:
         self._turn_model = ""
         config.on_change(self._settings_changed)
         notes.recorder.on_event = emit
+        from . import mcp_client   # 설정에서 추가한 MCP 서버에 붙기 (도구가 바뀌면 조용히 다시 연결)
+        mcp_client.listeners.append(self._mcp_changed)
+        mcp_client.start()
         threading.Thread(target=self._run, daemon=True, name="purplu-brain").start()
 
     # ---- 외부(UI/단축키/탭 서버)에서 부르는 것들 ----
@@ -194,6 +197,14 @@ class Brain:
     def sleep(self):
         self._keep_alive = False
         self._call(self._disconnect())
+
+    def _mcp_changed(self):
+        from . import mcp_client
+        names = sorted(n for n, _, _ in mcp_client.tool_list())
+        if names != getattr(self, "_mcp_names", None):
+            self._mcp_names = names
+            if getattr(self, "_session", None):
+                self.refresh_session()
 
     def refresh_session(self):
         """스킬 등 시스템 지시가 바뀌었을 때: 지금 대답 중이 아니면 조용히 다시 연결."""

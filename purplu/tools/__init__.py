@@ -181,7 +181,33 @@ CONTROL_DECLARATIONS = [
 
 
 def declarations(computer_control: bool):
-    return DECLARATIONS + BROWSER_DECLARATIONS + SCREEN_DECLARATIONS + (CONTROL_DECLARATIONS if computer_control else [])
+    from .. import mcp_client
+    mcp_client.wait_ready(6)   # 막 켜져서 MCP 서버가 붙는 중이면 조금 기다린다
+    try:
+        extra = mcp_client.declarations()   # 설정에서 추가한 MCP 서버의 도구
+    except Exception as e:
+        print("MCP 도구 목록 실패:", e)
+        extra = []
+    return DECLARATIONS + BROWSER_DECLARATIONS + SCREEN_DECLARATIONS + (CONTROL_DECLARATIONS if computer_control else []) + extra
+
+
+def _run_mcp(name: str, args: dict) -> dict:
+    """MCP 도구: '실행 전 확인' 설정을 따른다 (안전하면 자동 = 읽기만 하는 도구만 자동)."""
+    from .. import config, mcp_client, trace
+    server, tool, t = mcp_client.find(name)
+    if not server:
+        return {"ok": False, "error": "그 MCP 도구를 못 찾았어요."}
+    args = mcp_client.fix_args(name, args)
+    shown = ", ".join(f"{k}={str(v)[:60]!r}" for k, v in args.items())
+    trace.cmd(f"mcp.{server}.{tool}({shown})")
+    mode = config.settings().get("python_approval", "ask")
+    read_only = bool(getattr(getattr(t, "annotations", None), "readOnlyHint", False))
+    if mode == "ask" or (mode == "auto_safe" and not read_only):
+        from . import pyrun
+        risks = [] if read_only else ["MCP 서버의 도구가 무언가를 바꿀 수 있어요"]
+        if not pyrun._confirm(f"{tool}({shown})", f"MCP 서버 '{server}'의 도구", risks, kind="MCP 도구"):
+            return {"ok": False, "error": "사용자가 허락하지 않았어요. 실행하지 않았어."}
+    return mcp_client.call(name, args)
 
 
 _RUNNERS = {
@@ -264,6 +290,11 @@ LABELS = {
 
 
 def run(name: str, args: dict, computer_control: bool = True) -> dict:
+    if name.startswith("mcp_"):
+        try:
+            return _run_mcp(name, args)
+        except Exception as e:
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
     fn = _RUNNERS.get(name)
     if not fn:
         return {"ok": False, "error": f"모르는 도구: {name}"}
@@ -302,6 +333,9 @@ def result_text(result: dict) -> str:
             v = result[key]
             v = ", ".join(map(str, v)) if isinstance(v, list) else v
             return fmt.format(str(v)[:70])
+    if "mcp" in result:
+        first = (result.get("text") or "").strip().split("\n")[0]
+        return f"{result['mcp']} · {first[:60]}" if first else result["mcp"]
     if "news" in result or "web" in result:
         return f"뉴스 {len(result.get('news', []))}개 · 웹 {len(result.get('web', []))}개"
     if "battery" in result:
@@ -339,4 +373,8 @@ def result_text(result: dict) -> str:
 
 
 def label(name: str, args: dict) -> str:
+    if name.startswith("mcp_"):
+        from .. import mcp_client
+        server, tool, _ = mcp_client.find(name)
+        return f"🔌 {server or 'MCP'}: {tool or name} 쓰는 중…"
     return LABELS.get(name, lambda a: f"{name} 하는 중…")(args)

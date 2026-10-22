@@ -5,11 +5,13 @@
 import io
 from datetime import datetime
 
-from PySide6.QtCore import QRectF, Qt, QTimer
+from PySide6.QtCore import QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
                                QFrame, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSlider, QTabWidget,
                                QPlainTextEdit, QTextBrowser, QVBoxLayout, QWidget)
+
+from html import escape as html_escape
 
 from . import config, store
 from .server import local_ip
@@ -91,6 +93,8 @@ class Toggle(QCheckBox):
 
 
 class SettingsWindow(QWidget):
+    _mcp_status = Signal()   # MCP 서버 상태가 바뀜 (다른 스레드 → 화면)
+
     def __init__(self, brain, tablet_url_fn, local_url_fn=None, network_problem_fn=None):
         super().__init__(None, Qt.Window)
         self.brain = brain
@@ -105,6 +109,7 @@ class SettingsWindow(QWidget):
         tabs.addTab(self._memo_tab(), "📝 메모")
         tabs.addTab(self._voice_tab(), "🔊 목소리")
         tabs.addTab(self._skills_tab(), "🧩 스킬")
+        tabs.addTab(self._mcp_tab(), "🔌 MCP")
         tabs.addTab(self._settings_tab(), "⚙ 설정")
         tabs.addTab(self._tablet_tab(), "📱 갤럭시 탭")
         lay = QVBoxLayout(self)
@@ -117,6 +122,7 @@ class SettingsWindow(QWidget):
         self.refresh_conversations()
         self.refresh_memos()
         self.refresh_skills()
+        self.refresh_mcp()
         self._refresh_tablet()
         self.show()
         self.raise_()
@@ -782,6 +788,246 @@ class SettingsWindow(QWidget):
             self.key_label.setText("✓ 저장됨")
 
     # ---- 갤럭시 탭 ----
+
+    # ---- MCP 탭 ----
+
+    MCP_KINDS = [("stdio", "명령어로 실행 (stdio)"), ("http", "주소 (HTTP)"), ("sse", "주소 (SSE)")]
+
+    def _mcp_tab(self):
+        from . import mcp_client
+        w = QWidget()
+        self.mcp_list = QListWidget()
+        self.mcp_list.setWordWrap(True)
+        self.mcp_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.mcp_list.currentItemChanged.connect(self._pick_mcp)
+        self.mcp_list.itemChanged.connect(self._toggle_mcp)
+        new = QPushButton("＋ 새 서버")
+        new.clicked.connect(self._new_mcp)
+        paste = QPushButton("JSON 붙여넣기", objectName="plain")
+        paste.setToolTip('Claude·Cursor 설정의 {"mcpServers": {...}} 를 그대로 붙여 넣어요')
+        paste.clicked.connect(self._paste_mcp)
+        top = QHBoxLayout()
+        top.addWidget(new)
+        top.addWidget(paste)
+        left = QVBoxLayout()
+        left.addLayout(top)
+        left.addWidget(self.mcp_list, 1)
+        tip = QLabel("MCP 서버를 붙이면 퍼플루가 그 도구를 써요. 체크 = 켜기.\n"
+                     "서버는 이 PC에서 프로그램을 실행하니 믿을 수 있는 것만 추가하세요.\n"
+                     "키·토큰은 이 PC(data\\mcp.json)에만 저장돼요.")
+        tip.setStyleSheet("color:#A1A1AA; font-size:9pt;")
+        tip.setWordWrap(True)
+        left.addWidget(tip)
+
+        self.mcp_name = QLineEdit(placeholderText="이름 (예: 파일, 깃허브)")
+        self.mcp_kind = QComboBox()
+        for key, text in self.MCP_KINDS:
+            self.mcp_kind.addItem(text, key)
+        self.mcp_kind.currentIndexChanged.connect(self._mcp_kind_changed)
+        self.mcp_cmd = QLineEdit(placeholderText="npx -y @modelcontextprotocol/server-filesystem D:\\")
+        self.mcp_url = QLineEdit(placeholderText="https://example.com/mcp")
+        self.mcp_env = QPlainTextEdit(placeholderText="이름=값 (한 줄에 하나)\n예: GITHUB_TOKEN=ghp_…")
+        self.mcp_env.setFixedHeight(70)
+        self.mcp_info = QTextBrowser()
+        self.mcp_info.setOpenExternalLinks(False)
+        save = QPushButton("💾 저장")
+        save.clicked.connect(self._save_mcp)
+        again = QPushButton("다시 연결", objectName="plain")
+        again.clicked.connect(lambda: mcp_client.reload())
+        self.mcp_del = QPushButton("삭제", objectName="danger")
+        self.mcp_del.clicked.connect(self._delete_mcp)
+        btns = QHBoxLayout()
+        btns.addWidget(save)
+        btns.addWidget(again)
+        btns.addStretch(1)
+        btns.addWidget(self.mcp_del)
+        right = QVBoxLayout()
+        self._mcp_labels = {}
+        for key, label, widget in (("name", "이름", self.mcp_name), ("kind", "종류", self.mcp_kind), ("cmd", "명령어", self.mcp_cmd),
+                                   ("url", "주소", self.mcp_url), ("env", "환경 변수", self.mcp_env),
+                                   ("info", "상태 · 도구", self.mcp_info)):
+            lab = QLabel(label)
+            lab.setStyleSheet("color:#A1A1AA; font-size:9pt;")
+            self._mcp_labels[key] = lab
+            right.addWidget(lab)
+            right.addWidget(widget, 1 if widget is self.mcp_info else 0)
+        right.addLayout(btns)
+        lay = QHBoxLayout(w)
+        lay.addLayout(left, 2)
+        lay.addLayout(right, 3)
+        self._mcp_name = None
+        self._mcp_kind_changed()
+        self._mcp_status.connect(self.refresh_mcp)
+        mcp_client.listeners.append(self._mcp_status.emit)
+        return w
+
+    def _mcp_kind_changed(self, *_):
+        stdio = self.mcp_kind.currentData() == "stdio"
+        for key, on in (("cmd", stdio), ("url", not stdio)):
+            self._mcp_labels[key].setVisible(on)
+        self.mcp_cmd.setVisible(stdio)
+        self.mcp_url.setVisible(not stdio)
+        self._mcp_labels["env"].setText("환경 변수 (이름=값, 한 줄에 하나)" if stdio else "헤더 (이름=값, 예: Authorization=Bearer …)")
+
+    @staticmethod
+    def _mcp_state_text(st: dict) -> str:
+        state = (st or {}).get("state")
+        if state == "ok":
+            return f"● 연결됨 · 도구 {len(st['tools'])}개"
+        if state == "connecting":
+            return "… 연결 중" + (f" (지난 오류: {st['error'][:40]})" if st.get("error") else "")
+        if state == "error":
+            return f"⚠ {st['error'][:70]}"
+        return "○ 꺼짐"
+
+    def refresh_mcp(self):
+        from . import mcp_client
+        servers = mcp_client.load()
+        self.mcp_list.blockSignals(True)
+        self.mcp_list.clear()
+        for sv in servers:
+            st = mcp_client.status.get(sv["name"], {"state": "off" if not sv.get("enabled", True) else "connecting"})
+            item = QListWidgetItem(f"🔌 {sv['name']}\n     {self._mcp_state_text(st)}")
+            item.setData(Qt.UserRole, sv["name"])
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if sv.get("enabled", True) else Qt.Unchecked)
+            self.mcp_list.addItem(item)
+            if sv["name"] == self._mcp_name:
+                self.mcp_list.setCurrentItem(item)
+        if not servers:
+            self.mcp_list.addItem("아직 없어요. '＋ 새 서버'나 'JSON 붙여넣기'로 추가하세요.")
+        self.mcp_list.blockSignals(False)
+        self.mcp_del.setEnabled(bool(self._mcp_name))
+        self._show_mcp_info()
+
+    def _show_mcp_info(self):
+        from . import mcp_client
+        if not self._mcp_name:
+            self.mcp_info.setHtml("<span style='color:#A1A1AA'>예) 파일 서버: 종류 '명령어로 실행', 명령어 "
+                                  "<code>npx -y @modelcontextprotocol/server-filesystem D:\\</code><br>"
+                                  "주소로 붙는 서버는 종류 '주소 (HTTP)'에 주소를 넣어요.</span>")
+            return
+        st = mcp_client.status.get(self._mcp_name, {})
+        rows = [f"<b>{html_escape(self._mcp_state_text(st))}</b>"]
+        if st.get("state") == "error" or st.get("error"):
+            rows.append(f"<span style='color:#FCA5A5'>{html_escape(st.get('error', ''))}</span>")
+            rows.append(f"<span style='color:#A1A1AA'>자세한 기록: data\\mcp_logs\\{html_escape(self._mcp_name)}.log</span>")
+        for t in st.get("tools", []):
+            rows.append(f"• <b>{html_escape(t.name)}</b> <span style='color:#A1A1AA'>{html_escape((t.description or '')[:120])}</span>")
+        self.mcp_info.setHtml("<br>".join(rows))
+
+    def _pick_mcp(self, item, _prev=None):
+        from . import mcp_client
+        if not item or not item.data(Qt.UserRole):
+            return
+        self._mcp_name = item.data(Qt.UserRole)
+        sv = next((x for x in mcp_client.load() if x["name"] == self._mcp_name), {})
+        self.mcp_name.setText(sv.get("name", ""))
+        self.mcp_kind.setCurrentIndex(max(0, self.mcp_kind.findData(sv.get("type", "stdio"))))
+        args = [sv.get("command", "")] + [str(a) for a in sv.get("args") or []]
+        self.mcp_cmd.setText(" ".join(f'"{a}"' if " " in a else a for a in args if a))
+        self.mcp_url.setText(sv.get("url", ""))
+        pairs = sv.get("env") if sv.get("type", "stdio") == "stdio" else sv.get("headers")
+        self.mcp_env.setPlainText("\n".join(f"{k}={v}" for k, v in (pairs or {}).items()))
+        self.mcp_del.setEnabled(True)
+        self._show_mcp_info()
+
+    def _new_mcp(self):
+        self._mcp_name = None
+        self.mcp_list.clearSelection()
+        for wdg in (self.mcp_name, self.mcp_cmd, self.mcp_url):
+            wdg.clear()
+        self.mcp_env.clear()
+        self.mcp_kind.setCurrentIndex(0)
+        self.mcp_del.setEnabled(False)
+        self._show_mcp_info()
+        self.mcp_name.setFocus()
+
+    def _save_mcp(self):
+        import shlex
+        from . import mcp_client
+        name = self.mcp_name.text().strip()
+        if not name:
+            return QMessageBox.information(self, "MCP", "이름을 넣어 주세요.")
+        kind = self.mcp_kind.currentData()
+        pairs = {}
+        for line in self.mcp_env.toPlainText().splitlines():
+            if "=" in line:
+                k, v = line.split("=", 1)
+                if k.strip():
+                    pairs[k.strip()] = v.strip()
+        sv = {"name": name, "type": kind, "enabled": True}
+        if kind == "stdio":
+            parts = [p.strip('"').strip("'") for p in shlex.split(self.mcp_cmd.text().strip(), posix=False)]
+            if not parts:
+                return QMessageBox.information(self, "MCP", "실행할 명령어를 넣어 주세요.")
+            sv.update(command=parts[0], args=parts[1:], env=pairs)
+        else:
+            url = self.mcp_url.text().strip()
+            if not url.startswith(("http://", "https://")):
+                return QMessageBox.information(self, "MCP", "주소는 http:// 나 https:// 로 시작해야 해요.")
+            sv.update(url=url, headers=pairs)
+        servers = mcp_client.load()
+        old = next((x for x in servers if x["name"] == (self._mcp_name or name)), None)
+        if old:
+            sv["enabled"] = old.get("enabled", True)
+            servers[servers.index(old)] = sv
+        elif any(x["name"] == name for x in servers):
+            return QMessageBox.information(self, "MCP", "같은 이름의 서버가 이미 있어요.")
+        else:
+            servers.append(sv)
+        self._mcp_name = name
+        mcp_client.save(servers)
+        self._flash_mcp()
+
+    def _flash_mcp(self):
+        self.refresh_mcp()
+        if hasattr(self, "_flash"):
+            self._flash("✓ 저장했어요 · 연결하는 중…")
+
+    def _delete_mcp(self):
+        from . import mcp_client
+        if not self._mcp_name:
+            return
+        if QMessageBox.question(self, "MCP 서버 지우기", f"'{self._mcp_name}' 서버를 지울까요?") != QMessageBox.Yes:
+            return
+        mcp_client.save([x for x in mcp_client.load() if x["name"] != self._mcp_name])
+        self._new_mcp()
+        self.refresh_mcp()
+
+    def _toggle_mcp(self, item):
+        from . import mcp_client
+        name = item.data(Qt.UserRole)
+        if not name:
+            return
+        servers = mcp_client.load()
+        for x in servers:
+            if x["name"] == name:
+                x["enabled"] = item.checkState() == Qt.Checked
+        mcp_client.save(servers)
+
+    def _paste_mcp(self):
+        from . import mcp_client
+        text, ok = QInputDialog.getMultiLineText(self, "MCP 설정 붙여넣기",
+                                                 'Claude·Cursor 의 설정 JSON 을 붙여 넣으세요.\n예: {"mcpServers": {"파일": {"command": "npx", "args": [...]}}}')
+        if not ok or not text.strip():
+            return
+        try:
+            new = mcp_client.parse_config_json(text)
+        except Exception as e:
+            return QMessageBox.warning(self, "MCP", f"JSON 을 읽지 못했어요: {e}")
+        if not new:
+            return QMessageBox.information(self, "MCP", "서버를 찾지 못했어요.")
+        servers = mcp_client.load()
+        names = {x["name"] for x in servers}
+        for sv in new:
+            if sv["name"] in names:
+                servers = [sv if x["name"] == sv["name"] else x for x in servers]
+            else:
+                servers.append(sv)
+        mcp_client.save(servers)
+        self._mcp_name = new[0]["name"]
+        self._flash_mcp()
 
     def _tablet_tab(self):
         w = QWidget()
