@@ -24,7 +24,14 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 
 ROOT = Path(__file__).resolve().parent.parent
 PAGE_JS = (ROOT / "chrome_extension" / "page.js").read_text(encoding="utf-8")
-HOME = "https://www.google.com/"
+HOME = "https://www.google.com/"   # main() 에서 퍼플루 처음 화면(web/start.html)으로 바뀐다
+
+
+def start_page(light: bool, accent: str) -> str:
+    from urllib.parse import urlencode
+    u = QUrl.fromLocalFile(str(ROOT / "purplu" / "web" / "start.html"))
+    u.setQuery(urlencode({"color": accent, "dark": "0" if light else "1"}))
+    return u.toString(QUrl.FullyEncoded)
 
 
 def _out(obj):
@@ -125,6 +132,11 @@ class UrlBox(QLineEdit):
 
     def show_url(self, u: QUrl):
         self.full = u.toString()
+        if u.scheme() == "file":   # 처음 화면이면 주소창은 비워 둔다
+            self.full = ""
+            if not self.hasFocus():
+                self.setText("")
+            return
         if not self.hasFocus():
             host = u.host().removeprefix("www.")
             self.setText(host + (u.path() if u.path() not in ("", "/") else "") if host else self.full)
@@ -153,6 +165,8 @@ class Browser(QWidget):
         ua = self.profile.httpUserAgent()
         self.profile.setHttpUserAgent(" ".join(t for t in ua.split() if not t.startswith("QtWebEngine")))
         self.page_ = QWebEnginePage(self.profile, self)
+        from PySide6.QtWebEngineCore import QWebEngineSettings
+        self.page_.settings().setAttribute(QWebEngineSettings.LocalContentCanAccessRemoteUrls, True)   # 처음 화면의 사이트 아이콘
         self.view = QWebEngineView()
         self.view.setPage(self.page_)
         # 새 창·새 탭으로 열려는 링크도 이 탭 하나에서 (탭이 늘어나지 않게)
@@ -191,7 +205,7 @@ class Browser(QWidget):
         self.url.installEventFilter(self)
         self._pill = pill
         pl.addWidget(self.url, 1)
-        self.b_home = mk("home", "처음 화면 (구글)")
+        self.b_home = mk("home", "처음 화면")
         self.b_home.setFixedSize(26, 26)
         self.b_home.clicked.connect(lambda: self.view.setUrl(QUrl(HOME)))
         pl.addWidget(self.b_home)
@@ -415,6 +429,8 @@ def main():
     app = QApplication(sys.argv)
     light = "--dark" not in sys.argv
     accent = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--color=")), "#8B5CF6")
+    global HOME
+    HOME = start_page(light, accent)
     w = Browser(light, accent)
     w.resize(640, 420)
     w.move(-20000, -20000)   # 대화창에 끼워지기 전엔 화면 밖에서 그려 둔다

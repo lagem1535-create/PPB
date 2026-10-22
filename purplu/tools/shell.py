@@ -24,6 +24,9 @@ RISKS = [
 ]
 
 
+listeners = []   # (명령, 출력, 끝 코드) 를 받을 함수 — 대화창 터미널
+
+
 def analyze(command: str) -> list[str]:
     low = command.lower()
     return [why for pattern, why in RISKS if re.search(pattern, low)]
@@ -58,6 +61,11 @@ def run_command(command: str, purpose: str = "", shell: str = "powershell", time
                            timeout=max(5, min(600, int(timeout or 60))), creationflags=subprocess.CREATE_NO_WINDOW)
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": f"{timeout}초 안에 안 끝나서 멈췄어요.", "approval": how}
+    for fn in list(listeners):   # 대화창 터미널에도 보이게
+        try:
+            fn(command, (r.stdout or "") + (r.stderr or ""), r.returncode)
+        except Exception:
+            pass
     out = {"ok": r.returncode == 0, "exit_code": r.returncode, "seconds": round(time.perf_counter() - t0, 2),
            "stdout": (r.stdout or "")[-OUTPUT_LIMIT:], "approval": how}
     if (r.stderr or "").strip():

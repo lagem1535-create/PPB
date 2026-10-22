@@ -37,6 +37,7 @@ COMMANDS = [
     ("delete", "이 대화 지우기"),
     ("chats", "다른 대화로 바꾸기"),
     ("web", "위쪽을 퍼플루 ↔ 퍼플루 브라우저로"),
+    ("term", "위쪽을 퍼플루 ↔ 터미널로"),
     ("model", "빠른 모델 ↔ 생각하는 모델"),
     ("mini", "작은 모드 켜기/끄기"),
     ("pin", "오른쪽에 고정 / 풀기"),
@@ -45,7 +46,7 @@ COMMANDS = [
     ("skills", "스킬 목록 (# 으로도 불러요)"),
     ("close", "대화창 닫기"),
 ]
-CMD_ALIAS = {"browser": "web", "브라우저": "web", "setting": "settings", "설정": "settings", "새대화": "new", "clear": "new"}
+CMD_ALIAS = {"terminal": "term", "터미널": "term", "browser": "web", "브라우저": "web", "setting": "settings", "설정": "settings", "새대화": "new", "clear": "new"}
 
 MODELS = {"gemini-3.8-live": "⚡ 빠른 모델", "gemini-3.8-live-extended-thinking": "🧠 생각하는 모델"}
 STATUS = {"sleep": "듣는 중", "idle": "듣는 중", "listening": "듣는 중…", "thinking": "생각 중…",
@@ -346,6 +347,11 @@ class IconButton(QPushButton):
                 p.setBrush(accent)
             p.drawPath(path)
             p.drawLine(QPointF(cx, cy + 2), QPointF(cx, cy + 8))
+        elif k == "term":     # >_ (터미널)
+            p.drawRoundedRect(QRectF(cx - 8, cy - 6.5, 16, 13), 2.5, 2.5)
+            p.drawLine(QPointF(cx - 4.5, cy - 2.5), QPointF(cx - 1.5, cy))
+            p.drawLine(QPointF(cx - 1.5, cy), QPointF(cx - 4.5, cy + 2.5))
+            p.drawLine(QPointF(cx + 0.5, cy + 3), QPointF(cx + 4.5, cy + 3))
         elif k == "web":      # 지구본 (퍼플루 브라우저)
             p.drawEllipse(QPointF(cx, cy), 7, 7)
             p.drawEllipse(QPointF(cx, cy), 3, 7)
@@ -483,6 +489,9 @@ class ChatPanel(QWidget):
         wl.addWidget(self.web_wait)
         self.top.addWidget(self.web_holder)
         self._web_box = None
+        self.term, self._term_backlog = None, []
+        from .tools import shell as _shell
+        _shell.listeners.append(self._purplu_ran)
         lay.addWidget(self.top, 34)
         self._lay = lay
         self._web_hwnd.connect(self._embed_web)
@@ -519,7 +528,9 @@ class ChatPanel(QWidget):
         head.addWidget(self.status)
         head.addStretch(1)
         self.btn_web = IconButton("web", "위쪽을 퍼플루 ↔ 퍼플루 브라우저로 바꾸기")
-        self.btn_web.clicked.connect(lambda: self._show_web(self.top.currentIndex() == 0))
+        self.btn_web.clicked.connect(lambda: self._show_top(0 if self._top_index() == 1 else 1))
+        self.btn_term = IconButton("term", "위쪽을 퍼플루 ↔ 터미널로 바꾸기")
+        self.btn_term.clicked.connect(lambda: self._show_top(0 if self._top_index() == 2 else 2))
         btn_new = IconButton("new", "새 대화")
         btn_new.clicked.connect(self._new_chat)
         self.btn_mini = IconButton("mini", "작게 / 크게")
@@ -531,7 +542,7 @@ class ChatPanel(QWidget):
         btn_close = IconButton("close", "닫기 (Ctrl+Alt+C로 다시 열기)")
         btn_close.clicked.connect(self._close_clicked)
         head.setSpacing(2)
-        for b in (self.btn_web, btn_new, self.btn_mini, self.btn_pin, btn_set):
+        for b in (self.btn_web, self.btn_term, btn_new, self.btn_mini, self.btn_pin, btn_set):
             head.addWidget(b)
         sep = QFrame()
         sep.setFixedSize(1, 16)
@@ -649,6 +660,8 @@ class ChatPanel(QWidget):
         c = s.get("color") or "#8B5CF6"
         cc = s.get("chat_color") or c
         self._cc = cc
+        if getattr(self, "term", None) is not None:
+            self.term.apply_colors(pal(), cc)
         self.setStyleSheet(f"""
             QWidget {{ font-family:'Malgun Gothic'; font-size:10.5pt; color:{P['text']}; }}
             QFrame#body, QWidget#msgs, QScrollArea, QScrollArea > QWidget > QWidget {{ background:{P['bg']}; }}
@@ -673,7 +686,7 @@ class ChatPanel(QWidget):
             QScrollBar:vertical {{ width:6px; background:transparent; }}
             QScrollBar::handle:vertical {{ background:{P['line']}; border-radius:3px; }}
         """)
-        self.top.setVisible((s.get("pc_layout", "stack") != "full" or self.top.currentIndex() == 1) and not self.mini)
+        self.top.setVisible((s.get("pc_layout", "stack") != "full" or self._top_index() != 0) and not self.mini)
         idx = self.model.findData(s.get("live_model"))
         if idx >= 0:
             self.model.setCurrentIndex(idx)
@@ -1034,25 +1047,53 @@ class ChatPanel(QWidget):
 
     def _show_web(self, on: bool, auto: bool = False):
         """위쪽 칸을 퍼플루 브라우저(on) 또는 퍼플루 얼굴로. 퍼플루가 브라우저를 쓰면 저절로 브라우저로."""
-        if on == (self.top.currentIndex() == 1):
+        if auto and self._top_index() == 1:
             return
-        self.top.setCurrentIndex(1 if on else 0)
-        self.btn_web.active = on
-        self.btn_web.update()
-        self._lay.setStretch(0, 60 if on else 34)   # 브라우저일 땐 위쪽을 더 크게
-        if on:
-            if self.mini:
-                self._toggle_mini()
-            self.top.show()
-            if auto and not self.isVisible():
-                self.open(False)
+        self._show_top(1 if on else 0, auto)
+
+    def _show_top(self, which: int, auto: bool = False):
+        """위쪽 칸: 0 퍼플루 얼굴 · 1 퍼플루 브라우저 · 2 터미널. 같은 단추를 또 누르면 얼굴로."""
+        if which == 2 and self.term is None:   # 터미널은 처음 열 때 만든다
+            from .terminal import Terminal
+            self.term = Terminal(str(config.BASE_DIR), pal(), self._cc)
+            self.top.addWidget(self.term)
+            for line in self._term_backlog:
+                self.term.purplu_ran.emit(*line)
+            self._term_backlog = []
+        if which == self.top.currentIndex():
+            return
+        self.top.setCurrentWidget(self.face if which == 0 else self.web_holder if which == 1 else self.term)
+        for b, n in ((self.btn_web, 1), (self.btn_term, 2)):
+            b.active = which == n
+            b.update()
+        self._lay.setStretch(0, 34 if which == 0 else 60)   # 브라우저·터미널일 땐 위쪽을 더 크게
+        if which == 0:
+            self.top.setVisible(config.settings().get("pc_layout", "stack") != "full" and not self.mini)
+            return
+        if self.mini:
+            self._toggle_mini()
+        self.top.show()
+        if auto and not self.isVisible():
+            self.open(False)
+        if which == 1:
             from . import ownbrowser_client as ob
             if ob.alive() and ob.hwnd[0]:
                 self._embed_web(ob.hwnd[0])
             else:
                 threading.Thread(target=ob.start, daemon=True).start()
         else:
-            self.top.setVisible(config.settings().get("pc_layout", "stack") != "full" and not self.mini)
+            self.term.inp.setFocus()
+
+    def _top_index(self) -> int:
+        w = self.top.currentWidget()
+        return 0 if w is self.face else 1 if w is self.web_holder else 2
+
+    def _purplu_ran(self, cmd: str, output: str, code: int):
+        """퍼플루가 run_command 로 실행한 명령 → 터미널에 (다른 스레드에서 불림)."""
+        if self.term is not None:
+            self.term.purplu_ran.emit(cmd, output[-6000:], code)
+        else:
+            self._term_backlog = (self._term_backlog + [(cmd, output[-6000:], code)])[-20:]
 
     def _embed_web(self, hwnd: int):
         """따로 도는 퍼플루 브라우저 창을 위쪽 칸에 끼운다 (브라우저가 죽어도 대화창은 안 죽음)."""
@@ -1083,7 +1124,7 @@ class ChatPanel(QWidget):
             area = QGuiApplication.primaryScreen().availableGeometry()
             self.setGeometry(area.right() - 400, area.bottom() - 290, 380, 270)
         else:
-            self.top.setVisible(config.settings().get("pc_layout", "stack") != "full" or self.top.currentIndex() == 1)
+            self.top.setVisible(config.settings().get("pc_layout", "stack") != "full" or self._top_index() != 0)
             if getattr(self, "_big_geom", None):
                 self.setGeometry(self._big_geom)
         self._render()
@@ -1298,7 +1339,9 @@ class ChatPanel(QWidget):
         elif name == "mini":
             self._toggle_mini()
         elif name == "web":
-            self._show_web(self.top.currentIndex() == 0)
+            self._show_top(0 if self._top_index() == 1 else 1)
+        elif name == "term":
+            self._show_top(0 if self._top_index() == 2 else 2)
         elif name == "pin":
             config.save_settings(pc_chat_pinned=not s.get("pc_chat_pinned"))
         elif name == "top":

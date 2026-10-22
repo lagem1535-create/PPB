@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>새 탭</title>
+<style>
+  :root { --bg:#FFFFFF; --text:#1F1235; --dim:#71717A; --field:#F4F4F5; --tile:#FAFAFA; --line:#ECECEF; --accent:#8B5CF6; }
+  html.dark { --bg:#120B22; --text:#F5F3FF; --dim:#A1A1AA; --field:#1E1533; --tile:#1B1230; --line:#2E1F4F; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text);
+    font-family:"Pretendard","Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif; }
+  main { min-height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:28px 20px 40px; gap:26px; }
+  .hello { text-align:center; }
+  .time { font-size:44px; font-weight:300; letter-spacing:1px; line-height:1; }
+  .sub { margin-top:10px; color:var(--dim); font-size:14px; }
+  .sub b { color:var(--accent); font-weight:600; }
+  form { width:min(520px, 100%); position:relative; }
+  input { width:100%; height:48px; border:1.5px solid transparent; border-radius:24px; background:var(--field);
+    color:var(--text); font:inherit; font-size:15px; padding:0 52px 0 46px; outline:none; transition:.15s; }
+  input::placeholder { color:var(--dim); }
+  input:focus { background:var(--bg); border-color:var(--accent); box-shadow:0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent); }
+  .lens { position:absolute; left:17px; top:50%; transform:translateY(-50%); width:16px; height:16px; color:var(--dim); }
+  .go { position:absolute; right:6px; top:6px; width:36px; height:36px; border:none; border-radius:18px;
+    background:var(--accent); color:#fff; cursor:pointer; display:grid; place-items:center; opacity:0; transition:.15s; }
+  form:focus-within .go, input:not(:placeholder-shown) ~ .go { opacity:1; }
+  .tiles { display:grid; grid-template-columns:repeat(4, 76px); gap:10px; }
+  .tiles a { display:flex; flex-direction:column; align-items:center; gap:7px; padding:12px 4px 10px; border-radius:16px;
+    text-decoration:none; color:var(--text); font-size:12px; transition:.12s; }
+  .tiles a:hover { background:var(--tile); }
+  .tiles .ic { width:40px; height:40px; border-radius:12px; background:var(--field); display:grid; place-items:center; }
+  .tiles img { width:22px; height:22px; }
+  @media (max-width:380px) { .tiles { grid-template-columns:repeat(4, 64px); } .time { font-size:38px; } }
+</style>
+</head>
+<body>
+<main>
+  <div class="hello">
+    <div class="time" id="time"></div>
+    <div class="sub" id="sub"></div>
+  </div>
+  <form id="f" autocomplete="off">
+    <svg class="lens" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="q" placeholder="검색하거나 주소 입력" autofocus>
+    <button class="go" aria-label="찾기"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+  </form>
+  <nav class="tiles" id="tiles"></nav>
+</main>
+<script>
+  const p = new URLSearchParams(location.search);
+  if (p.get("dark") === "1") document.documentElement.classList.add("dark");
+  if (p.get("color")) document.documentElement.style.setProperty("--accent", p.get("color"));
+  const SITES = [["네이버", "naver.com"], ["유튜브", "youtube.com"], ["구글", "google.com"], ["다음", "daum.net"],
+                 ["지도", "map.naver.com"], ["번역", "papago.naver.com"], ["나무위키", "namu.wiki"], ["지메일", "gmail.com"]];
+  document.getElementById("tiles").innerHTML = SITES.map(([n, d]) =>
+    `<a href="https://${d}"><span class="ic"><img src="https://www.google.com/s2/favicons?domain=${d}&sz=64" alt=""></span>${n}</a>`).join("");
+  function tick() {
+    const d = new Date(), h = d.getHours();
+    document.getElementById("time").textContent = `${String(h).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    const hi = h < 6 ? "늦은 밤이에요" : h < 11 ? "좋은 아침이에요" : h < 17 ? "좋은 오후예요" : h < 21 ? "좋은 저녁이에요" : "편안한 밤 보내요";
+    document.getElementById("sub").innerHTML = `${d.getMonth() + 1}월 ${d.getDate()}일 ${"일월화수목금토"[d.getDay()]}요일 · ${hi} · <b>퍼플루</b>`;
+  }
+  tick(); setInterval(tick, 10000);
+  document.getElementById("f").onsubmit = e => {
+    e.preventDefault();
+    const v = document.getElementById("q").value.trim();
+    if (!v) return;
+    location.href = /^\S+\.\S+$/.test(v) && !/\s/.test(v) ? (/^https?:\/\//.test(v) ? v : "https://" + v)
+                                                         : "https://www.google.com/search?q=" + encodeURIComponent(v);
+  };
+</script>
+</body>
+</html>
