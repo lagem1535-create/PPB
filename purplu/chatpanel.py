@@ -45,9 +45,10 @@ COMMANDS = [
     ("image", "그림 붙이기"),
     ("skills", "스킬 목록 (# 으로도 불러요)"),
     ("mcp", "MCP 서버 보기 · 켜고 끄기 · 예시 추가"),
+    ("custom", "퍼플루 꾸미기 (눈 · 모자 · 더듬이 · 소품)"),
     ("close", "대화창 닫기"),
 ]
-CMD_ALIAS = {"terminal": "term", "터미널": "term", "browser": "web", "브라우저": "web", "setting": "settings", "설정": "settings", "새대화": "new", "clear": "new"}
+CMD_ALIAS = {"costom": "custom", "customize": "custom", "꾸미기": "custom", "terminal": "term", "터미널": "term", "browser": "web", "브라우저": "web", "setting": "settings", "설정": "settings", "새대화": "new", "clear": "new"}
 
 MODELS = {"gemini-3.8-live": "⚡ 빠른 모델", "gemini-3.8-live-extended-thinking": "🧠 생각하는 모델"}
 STATUS = {"sleep": "듣는 중", "idle": "듣는 중", "listening": "듣는 중…", "thinking": "생각 중…",
@@ -135,104 +136,9 @@ class FaceView(QWidget):
             self.released.emit()
 
     def paintEvent(self, _):
+        from .face import draw_face   # 눈·모자·더듬이·소품까지 (꾸미기: /custom)
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        P = pal()
-        W, H = self.width(), self.height()
-        p.fillRect(self.rect(), QColor(P["face_bg"]))
-        now = time.monotonic()
-        base = QColor(config.settings().get("color") or "#8B5CF6")
-        s = min(W / 884, H * 0.95 / 390)  # 원래 디자인(844×390)이 다 들어오게
-        p.translate((W - 844 * s) / 2, H - 390 * s)
-        p.scale(s, s)
-        bob = math.sin((now - self._t0) * 1.8) * 3 - self.talk * 14
-        body = QRectF(12, 44 + bob, 820, 700)
-        # 빛
-        if self.state == "listening":
-            glow = QRadialGradient(body.center().x(), body.top() + 200, 520)
-            aura = QColor(config.settings().get("chat_color") or config.settings().get("color") or "#8B5CF6")
-            aura.setAlpha(150)
-            glow.setColorAt(0, aura)   # 듣는 동안의 빛 = 내가 고른 색
-            glow.setColorAt(1, QColor(0, 0, 0, 0))
-            p.fillRect(QRectF(-200, -200, 1300, 900), glow)
-        path = QPainterPath()
-        cx, top, bot = body.center().x(), body.top(), body.bottom()
-        path.moveTo(body.left(), bot)
-        path.cubicTo(body.left() - 4, top + body.height() * .36, cx - body.width() * .36, top, cx, top)
-        path.cubicTo(cx + body.width() * .36, top, body.right() + 4, top + body.height() * .36, body.right(), bot)
-        path.closeSubpath()
-        grad = QLinearGradient(body.topLeft(), QPointF(body.right(), body.top() + body.height() * .6))
-        grad.setColorAt(0, base.lighter(170))
-        grad.setColorAt(.5, base)
-        grad.setColorAt(1, base.darker(140))
-        p.fillPath(path, grad)
-        shine = QRadialGradient(body.left() + 246, body.top() + 126, 243)
-        shine.setColorAt(0, QColor(255, 255, 255, 120))
-        shine.setColorAt(1, QColor(255, 255, 255, 0))
-        p.fillPath(path, shine)
-        navy = QColor(base).darker(260)
-        ink = QColor("#1A1426")
-        happy = time.monotonic() < self._happy_until
-        sleeping = self.state == "sleep" and False
-        bt = (now - self._blink) / 0.15
-        closed = math.sin(math.pi * bt) if 0 <= bt <= 1 else 0
-        for i, ex in enumerate((body.left() + 280, body.left() + 540)):
-            ey = body.top() + 157
-            side = -1 if i == 0 else 1
-            # 눈썹
-            p.setPen(QPen(navy, 14, Qt.SolidLine, Qt.RoundCap))
-            lift = {"listening": 10, "thinking": 4, "speaking": 8}.get(self.state, 0)
-            brow = QPainterPath()
-            brow.moveTo(ex - 38 + side * 6, ey - 106 - lift * .7)
-            brow.quadTo(ex + side * 6, ey - 124 - lift * .7, ex + 38 + side * 6, ey - 106 - lift * .7)
-            p.drawPath(brow)
-            if happy:
-                p.setPen(QPen(ink, 24, Qt.SolidLine, Qt.RoundCap))
-                arc = QPainterPath()
-                arc.moveTo(ex - 60, ey + 34)
-                arc.quadTo(ex, ey - 54, ex + 60, ey + 34)
-                p.drawPath(arc)
-                continue
-            open_ = max(0.06, 1 - closed) * (1 - self.talk * 0.12)
-            p.setPen(Qt.NoPen)
-            p.setBrush(QColor("white"))
-            p.drawEllipse(QPointF(ex, ey), 95, 95 * open_)
-            if open_ > 0.2:
-                r = 46 * (1.12 if self.state == "listening" else 1)
-                px, py = ex + self._gx * 50 - side * 3, ey + self._gy * 50 * open_
-                clip = QPainterPath()
-                clip.addEllipse(QPointF(ex, ey), 95, 95 * open_)
-                p.save()
-                p.setClipPath(clip)
-                p.setBrush(ink)
-                p.drawEllipse(QPointF(px, py), r, r)
-                p.setBrush(QColor("white"))
-                p.drawEllipse(QPointF(px - r * .3, py - r * .44), r * .28, r * .28)
-                p.setBrush(QColor(255, 255, 255, 215))
-                p.drawEllipse(QPointF(px + r * .4, py + r * .34), r * .12, r * .12)
-                p.restore()
-        # 볼
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(243, 166, 216, 110 if happy else 70))
-        for ex in (body.left() + 218, body.left() + 602):
-            p.drawEllipse(QPointF(ex, body.top() + 274), 45, 21)
-        # 입
-        nw, nh = 60 - self.talk * 8, 38 + self.talk * 34
-        nx, ny = body.left() + 410 - nw / 2, body.top() + 272 - self.talk * 6
-        p.setBrush(navy)
-        if happy and self.talk < .1:
-            m = QPainterPath()
-            m.moveTo(nx - 8, ny + 8)
-            m.quadTo(nx + nw / 2, ny + 58, nx + nw + 8, ny + 8)
-            m.closeSubpath()
-            p.drawPath(m)
-        else:
-            p.drawEllipse(QRectF(nx, ny, nw, nh))
-        # 생각 중: 점점점
-        if self.state == "thinking":
-            for k in range(3):
-                p.setBrush(QColor(255, 255, 255, int(255 * (1 - k * .3))))
-                p.drawEllipse(QPointF(body.left() + 698 + k * 26, body.top() + 48 - k * 12 + math.sin(now * 3 + k) * 4), 8, 8)
+        draw_face(p, self.width(), self.height(), self, bg=pal()["face_bg"])
         p.end()
 
 
@@ -1391,6 +1297,11 @@ class ChatPanel(QWidget):
             self._attach()
         elif name == "mcp":
             return self._mcp_menu()
+        elif name == "custom":
+            from .customize import CustomizeWindow
+            if getattr(self, "_custom_win", None) is None:
+                self._custom_win = CustomizeWindow()
+            return self._custom_win.open()
         elif name == "skills":
             self.input.setPlainText("#")
             self.input.moveCursor(self.input.textCursor().MoveOperation.End)

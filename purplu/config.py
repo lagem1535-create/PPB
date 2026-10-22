@@ -53,6 +53,8 @@ DEFAULTS = {
     "work_indicator": True,                            # 퍼플루가 앱·브라우저를 쓰는 동안 둘레에 빛 + '사용 중' 표시
     "work_indicator_color": "",                       # 작업 표시 색 (비우면 퍼플루 색)
     "browser_real_input": True,                        # 크롬 확장: 진짜 마우스·키보드(디버거)로 조작
+    "face_eyes": "basic", "face_hat": "none", "face_antenna": "none",   # 퍼플루 꾸미기 (/custom)
+    "face_extra": "none", "face_hat_color": "",
     "own_browser": True,                               # 웹 일은 퍼플루 브라우저(대화창 위, 탭 하나)에서
     "browser_highlights": True,                        # 크롬 확장: 사이트 하이라이트·노트
     "python_enabled": True,

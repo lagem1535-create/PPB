@@ -1,4 +1,4 @@
-"""대화창 위쪽에 들어가는 터미널 (PowerShell). Claude 터미널처럼: 위에 '터미널 +  ⋮ ⤢ ✕', 아래는 글 한 칸에서 바로 친다.
+"""대화창 위쪽에 들어가는 터미널 (PowerShell). Claude 터미널처럼: 위에 '터미널  터미널 2 +  ⋮ ⤢ ✕', 아래는 글 한 칸에서 바로 친다.
 
 명령마다 PowerShell 을 새로 띄우고, 'cd' 로 옮긴 폴더는 기억해서 다음 명령에 이어 준다.
 퍼플루가 run_command 로 실행한 명령도 여기에 보인다.
@@ -95,65 +95,31 @@ class Console(QPlainTextEdit):
         p.fillRect(QRectF(r.x(), r.y() + 1, w, r.height() - 2), col)
 
 
-class Terminal(QWidget):
-    purplu_ran = Signal(str, str, int)   # 퍼플루가 실행한 명령 (다른 스레드 → 화면 스레드)
-    close_clicked = Signal()
-    expand_clicked = Signal()
+class Session(QWidget):
+    """터미널 탭 하나: 글 칸 + 폴더 + 실행 중인 명령."""
 
-    def __init__(self, cwd: str, colors: dict, accent: str):
+    def __init__(self, cwd: str, term):
         super().__init__()
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.home = cwd
-        self.cwd, self.c, self.accent = cwd, colors, accent
+        self.t = term
+        self.home = self.cwd = cwd
         self.proc = None
         self._buf = ""
-
-        # 머리줄: 터미널 +            ⋮ ⤢ ✕
-        head = QHBoxLayout()
-        head.setContentsMargins(12, 6, 6, 2)
-        head.setSpacing(2)
-        self.title = QLabel("터미널")
-        head.addWidget(self.title)
-        self.b_new = self._btn("+", "새 터미널 (지우고 처음 폴더로)", self.new_session, 15)
-        head.addWidget(self.b_new)
-        head.addStretch(1)
-        self.b_more = self._btn("⋮", "더 보기", self._menu, 17)
-        self.b_big = self._btn("⤢", "크게 / 작게", self.expand_clicked.emit, 16)
-        self.b_close = self._btn("✕", "닫기 (퍼플루로)", self.close_clicked.emit, 13)
-        for b in (self.b_more, self.b_big, self.b_close):
-            head.addWidget(b)
-
         self.con = Console()
         self.con.submitted.connect(self._submit)
         self.con.interrupted.connect(self._interrupt)
-
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(0)
-        v.addLayout(head)
-        v.addWidget(self.con, 1)
-        self.purplu_ran.connect(self._show_purplu)
-        self.apply_colors(colors, accent)
+        v.addWidget(self.con)
+        self.apply_colors()
         self._write(BANNER)
         self._prompt()
 
-    def _btn(self, text, tip, fn, size):
-        b = QPushButton(text)
-        b.setToolTip(tip)
-        b.setFixedSize(28, 28)
-        b.setCursor(Qt.PointingHandCursor)
-        b.setProperty("sz", size)
-        b.clicked.connect(fn)
-        return b
+    @property
+    def c(self):
+        return self.t.c
 
-    def apply_colors(self, colors: dict, accent: str):
-        self.c, self.accent = colors, accent
-        c = colors
-        self.setStyleSheet(f"Terminal {{ background:{c['bg']}; }}")
-        self.title.setStyleSheet(f"color:{c['dim']}; font-size:10.5pt;")
-        for b in (self.b_new, self.b_more, self.b_big, self.b_close):
-            b.setStyleSheet(f"QPushButton {{ background:transparent; border:none; border-radius:7px; color:{c['text']}; font-size:{b.property('sz')}pt; }}"
-                            f"QPushButton:hover {{ background:{c['card']}; }}")
+    def apply_colors(self):
+        c = self.c
         self.con.setStyleSheet(f"QPlainTextEdit {{ background:{c['bg']}; color:{c['text']}; padding:4px 8px; border:none; {MONO} }}"
                                f"QScrollBar:vertical {{ width:6px; background:transparent; }}"
                                f"QScrollBar::handle:vertical {{ background:{c['line']}; border-radius:3px; }}")
@@ -188,6 +154,8 @@ class Terminal(QWidget):
         if cmd.strip().lower() in ("cls", "clear", "clear-host"):
             self.con.clear()
             return self._prompt()
+        if cmd.strip().lower() == "exit":   # exit 하면 이 탭을 닫는다
+            return self.t.close_session(self)
         self._run(cmd)
 
     def _run(self, cmd: str):
@@ -234,25 +202,13 @@ class Terminal(QWidget):
             self._write("^C\n\n")
             self._prompt()
 
-    def new_session(self):
+    def stop(self):
         if self.proc:
             self.proc.kill()
             self.proc = None
-        self.cwd = self.home
-        self.con.clear()
-        self._write(BANNER)
-        self._prompt()
-        self.focus()
-
-    def _menu(self):
-        m = QMenu(self)
-        m.addAction("화면 지우기", lambda: (self.con.clear(), self._prompt()))
-        m.addAction("모두 복사", lambda: QGuiApplication.clipboard().setText(self.con.toPlainText()))
-        m.addAction("새 터미널", self.new_session)
-        m.exec(self.b_more.mapToGlobal(self.b_more.rect().bottomLeft()))
 
     # ---- 퍼플루가 실행한 명령 ----
-    def _show_purplu(self, cmd: str, output: str, code: int):
+    def show_purplu(self, cmd: str, output: str, code: int):
         """치던 줄은 그대로 두고, 그 위에 퍼플루가 실행한 명령과 결과를 끼워 넣는다."""
         typed = "" if self.con.busy else self.con._input()
         if not self.con.busy:   # 지금 프롬프트 줄을 지우고
@@ -262,7 +218,7 @@ class Terminal(QWidget):
             cur.movePosition(QTextCursor.End, QTextCursor.KeepAnchor)
             cur.removeSelectedText()
         self._write(f"PS {self.cwd}> ")
-        self._write(cmd.strip(), self.accent)
+        self._write(cmd.strip(), self.t.accent)
         self._write("    # 퍼플루\n", self.c["dim"])
         if output.strip():
             self._write(output.rstrip() + "\n")
@@ -270,3 +226,138 @@ class Terminal(QWidget):
         if not self.con.busy:   # 프롬프트와 치던 글을 다시
             self._prompt()
             self._write(typed)
+
+
+class Terminal(QWidget):
+    """머리줄: [터미널] [터미널 2] … +            ⋮ ⤢ ✕  /  아래: 고른 탭의 글 칸."""
+    purplu_ran = Signal(str, str, int)   # 퍼플루가 실행한 명령 (다른 스레드 → 화면 스레드)
+    close_clicked = Signal()
+    expand_clicked = Signal()
+
+    def __init__(self, cwd: str, colors: dict, accent: str):
+        super().__init__()
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.home, self.c, self.accent = cwd, colors, accent
+        self.sessions: list[Session] = []
+        self._count = 0
+
+        head = QHBoxLayout()
+        head.setContentsMargins(8, 6, 6, 2)
+        head.setSpacing(2)
+        self.tabrow = QHBoxLayout()
+        self.tabrow.setSpacing(2)
+        head.addLayout(self.tabrow)
+        self.b_new = self._btn("+", "새 터미널", self.new_session, 15)
+        head.addWidget(self.b_new)
+        head.addStretch(1)
+        self.b_more = self._btn("⋮", "더 보기", self._menu, 17)
+        self.b_big = self._btn("⤢", "크게 / 작게", self.expand_clicked.emit, 16)
+        self.b_close = self._btn("✕", "닫기 (퍼플루로)", self.close_clicked.emit, 13)
+        for b in (self.b_more, self.b_big, self.b_close):
+            head.addWidget(b)
+
+        from PySide6.QtWidgets import QStackedWidget
+        self.stack = QStackedWidget()
+        v = QVBoxLayout(self)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
+        v.addLayout(head)
+        v.addWidget(self.stack, 1)
+        self.purplu_ran.connect(self._show_purplu)
+        self.apply_colors(colors, accent)
+        self.new_session()
+
+    @property
+    def cur(self) -> Session:
+        return self.stack.currentWidget()
+
+    @property
+    def con(self):   # 예전 이름 (대화창이 term.con 으로 부르던 것)
+        return self.cur.con
+
+    def focus(self):
+        self.cur.focus()
+
+    def _btn(self, text, tip, fn, size):
+        b = QPushButton(text)
+        b.setToolTip(tip)
+        b.setFixedSize(28, 28)
+        b.setCursor(Qt.PointingHandCursor)
+        b.setProperty("sz", size)
+        b.clicked.connect(lambda _=False: fn())
+        return b
+
+    def apply_colors(self, colors: dict, accent: str):
+        self.c, self.accent = colors, accent
+        c = colors
+        self.setStyleSheet(f"Terminal {{ background:{c['bg']}; }}")
+        for b in (self.b_new, self.b_more, self.b_big, self.b_close):
+            b.setStyleSheet(f"QPushButton {{ background:transparent; border:none; border-radius:7px; color:{c['text']}; font-size:{b.property('sz')}pt; }}"
+                            f"QPushButton:hover {{ background:{c['card']}; }}")
+        for s in self.sessions:
+            s.apply_colors()
+        self._tabs()
+
+    # ---- 탭 ----
+    def new_session(self):
+        self._count += 1
+        s = Session(self.home, self)
+        s.title = "터미널" if self._count == 1 else f"터미널 {self._count}"
+        self.sessions.append(s)
+        self.stack.addWidget(s)
+        self.stack.setCurrentWidget(s)
+        self._tabs()
+        s.focus()
+        return s
+
+    def close_session(self, s):
+        s.stop()
+        if len(self.sessions) == 1:   # 마지막 탭은 닫지 않고 새로
+            self.sessions.remove(s)
+            self.stack.removeWidget(s)
+            s.deleteLater()
+            self._count = 0
+            return self.new_session()
+        i = self.sessions.index(s)
+        self.sessions.remove(s)
+        self.stack.removeWidget(s)
+        s.deleteLater()
+        self.stack.setCurrentWidget(self.sessions[max(0, i - 1)])
+        self._tabs()
+        self.cur.focus()
+
+    def _switch(self, s):
+        self.stack.setCurrentWidget(s)
+        self._tabs()
+        s.focus()
+
+    def _tabs(self):
+        """탭 글자 단추를 다시 만든다. 고른 탭은 진하게, 탭이 둘 이상이면 고른 탭에 × ."""
+        while self.tabrow.count():
+            w = self.tabrow.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+        c = self.c
+        many = len(self.sessions) > 1
+        for s in self.sessions:
+            on = s is self.cur
+            b = QPushButton(s.title + ("  ×" if on and many else ""))
+            b.setCursor(Qt.PointingHandCursor)
+            b.setToolTip("누르면 이 터미널로" + (" · 한 번 더 누르면 닫기" if on and many else ""))
+            b.setStyleSheet(f"QPushButton {{ background:{c['card'] if on and many else 'transparent'}; border:none; border-radius:7px;"
+                            f" color:{c['text'] if on else c['dim']}; font-size:10.5pt; padding:3px 8px; }}"
+                            f"QPushButton:hover {{ background:{c['card']}; }}")
+            b.clicked.connect(lambda _=False, s=s, on=on: self.close_session(s) if on and many else self._switch(s))
+            self.tabrow.addWidget(b)
+
+    def _menu(self):
+        m = QMenu(self)
+        m.addAction("새 터미널", self.new_session)
+        m.addAction("이 터미널 닫기", lambda: self.close_session(self.cur))
+        m.addSeparator()
+        m.addAction("화면 지우기", lambda: (self.cur.con.clear(), self.cur._prompt()))
+        m.addAction("모두 복사", lambda: QGuiApplication.clipboard().setText(self.cur.con.toPlainText()))
+        m.exec(self.b_more.mapToGlobal(self.b_more.rect().bottomLeft()))
+
+    def _show_purplu(self, cmd: str, output: str, code: int):
+        self.cur.show_purplu(cmd, output, code)
