@@ -105,14 +105,15 @@ DECLARATIONS = [
 ]
 
 BROWSER_DECLARATIONS = [
-    _fn("browser_tabs", "브라우저에 열린 탭 목록(tab_id, 제목, 주소)을 본다."),
     _fn("browser_open", "브라우저에서 주소를 연다(검색어를 주면 구글 검색). 웹 일은 open_url 대신 이걸 쓴다. "
         "기본은 '퍼플루 브라우저'(대화창 위에 보이는 탭 하나짜리 브라우저)에서 연다 — 같은 탭을 계속 다시 쓰니까 "
         "찾을 때마다 새로 열지 말고 이 탭에서 이어서 해. 사용자가 웨일·크롬에서 하라고 하면 where에 그 이름.",
         {"url": (S, "주소 또는 검색어"), "where": (S, "비우면 퍼플루 브라우저. '웨일'·'크롬'·'엣지'면 사용자의 그 브라우저"),
-         "new_tab": (B, "웨일·크롬에서 꼭 새 탭이 필요할 때만 true (기본 false: 퍼플루가 쓰던 탭을 다시 씀)")}, ["url"]),
-    _fn("browser_switch_tab", "브라우저 탭을 바꾼다.", {"tab_id": (I, "browser_tabs의 tab_id")}, ["tab_id"]),
-    _fn("browser_close_tab", "브라우저 탭을 닫는다. tab_id가 없으면 지금 탭.", {"tab_id": (I, "닫을 탭")}),
+         "new_tab": (B, "지금 탭은 두고 새 탭에서 열 때 true (기본 false: 지금 탭에서 엶). 여러 곳을 비교할 때만")}, ["url"]),
+    _fn("browser_tabs", "열린 탭 목록(번호·제목·주소). 기본은 퍼플루 브라우저의 탭, where='웨일'·'크롬'이면 내 브라우저의 탭.",
+        {"where": (S, "비우면 퍼플루 브라우저")}),
+    _fn("browser_switch_tab", "탭을 바꾼다 (browser_tabs의 tab_id).", {"tab_id": (I, "browser_tabs의 tab_id")}, ["tab_id"]),
+    _fn("browser_close_tab", "탭을 닫는다. tab_id가 없으면 지금 탭.", {"tab_id": (I, "닫을 탭")}),
     _fn("browser_read", "브라우저의 지금 탭을 읽는다: 제목, 주소, 본문 글, 누를 수 있는 것·입력칸 목록(E1, E2…). "
         "브라우저에서 무언가를 하기 전에 먼저 부른다. 화면 OCR보다 훨씬 정확하다.",
         {"max_chars": (I, "본문을 몇 글자까지 (기본 6000)")}),

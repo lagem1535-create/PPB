@@ -460,6 +460,7 @@ class ChatPanel(QWidget):
     _convs_ready = Signal(list)
     _web_hwnd = Signal(int)    # 퍼플루 브라우저 창이 생김 → 위쪽 칸에 끼우기
     _web_used = Signal()       # 퍼플루가 브라우저를 씀 → 위쪽 칸을 브라우저로
+    _term_used = Signal()      # 퍼플루가 명령을 실행함 → 위쪽 칸을 터미널로
 
     def __init__(self, brain, icon=None, open_settings=None):
         super().__init__(None, Qt.Window)
@@ -528,6 +529,7 @@ class ChatPanel(QWidget):
         self._lay = lay
         self._web_hwnd.connect(self._embed_web)
         self._web_used.connect(lambda: self._show_web(True, auto=True))
+        self._term_used.connect(lambda: self._top_index() != 2 and self._show_top(2, auto=True))
         from . import ownbrowser_client
         from .tools import web_browser
         ownbrowser_client.listeners.append(self._web_hwnd.emit)
@@ -1131,6 +1133,7 @@ class ChatPanel(QWidget):
             self.term.purplu_ran.emit(cmd, output[-6000:], code)
         else:
             self._term_backlog = (self._term_backlog + [(cmd, output[-6000:], code)])[-20:]
+        self._term_used.emit()
 
     def _embed_web(self, hwnd: int):
         """따로 도는 퍼플루 브라우저 창을 위쪽 칸에 끼운다 (브라우저가 죽어도 대화창은 안 죽음)."""

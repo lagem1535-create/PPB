@@ -47,8 +47,10 @@ def _call(cmd, args=None, timeout=25):
         return {"ok": False, "error": str(e)[:300]}
 
 
-def browser_tabs() -> dict:
-    """웨일·크롬에 열린 탭 목록 (내 브라우저). 퍼플루 브라우저는 탭이 하나뿐이다."""
+def browser_tabs(where: str = "") -> dict:
+    """열린 탭 목록. 기본은 퍼플루 브라우저의 탭, where='웨일'·'크롬'이면 내 브라우저의 탭."""
+    if _use_own() and not where:
+        return _call("tabs")
     try:
         trace.cmd("chrome.tabs.query({})  # " + (browser.current_name() or "브라우저") + " 확장")
         tabs = browser.call("tabs")
@@ -68,7 +70,7 @@ def browser_open(url: str, new_tab: bool = False, where: str = "") -> dict:
     elif config.settings().get("own_browser", True):
         _target[0] = "own"
     if _use_own():
-        return _call("open", {"url": url}, 30)
+        return _call("open", {"url": url, "new_tab": bool(new_tab)}, 30)
     # 웨일·크롬: 퍼플루가 전에 연 탭이 아직 있으면 새 탭 대신 그 탭을 다시 쓴다 (탭이 잔뜩 늘어나지 않게)
     if _my_tab[0] is not None:
         try:
@@ -86,6 +88,8 @@ def browser_open(url: str, new_tab: bool = False, where: str = "") -> dict:
 
 
 def browser_switch_tab(tab_id: int) -> dict:
+    if _use_own() and int(tab_id) < 100000:   # 퍼플루 브라우저의 탭 번호는 1, 2, 3… (크롬 탭 번호는 아주 큼)
+        return _call("switch", {"tab_id": int(tab_id)})
     _target[0] = "ext"   # 내 브라우저의 탭을 고르면 그 브라우저로
     return _call("switch", {"tab_id": int(tab_id)})
 

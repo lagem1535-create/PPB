@@ -1,4 +1,4 @@
-"""퍼플루 브라우저: 퍼플루가 직접 쓰고, 나도 직접 쓸 수 있는 작은 브라우저 (탭 하나).
+"""퍼플루 브라우저: 퍼플루가 직접 쓰고, 나도 직접 쓸 수 있는 작은 브라우저 (크롬처럼 탭 여러 개).
 
 따로 도는 프로그램이다 (python -m purplu.ownbrowser). 웹 엔진이 죽어도 퍼플루는 안 죽는다.
 - 퍼플루와는 표준 입출력으로 한 줄씩 JSON을 주고받는다: {"id":1,"cmd":"open","args":{...}} → {"id":1,"result":{...}}
@@ -7,18 +7,19 @@
 """
 import base64
 import json
+import re
 import sys
 import threading
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import unquote
 
-from PySide6.QtCore import QBuffer, QByteArray, QEvent, QPointF, Qt, QTimer, QUrl, Signal, QObject
+from PySide6.QtCore import QBuffer, QByteArray, QEvent, QPointF, Qt, QTimer, QUrl, QUrlQuery, Signal, QObject
 import math
 
 from PySide6.QtCore import QPoint, QRectF
-from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLineEdit, QProgressBar, QPushButton, QVBoxLayout,
-                               QWidget)
+from PySide6.QtGui import QColor, QKeyEvent, QKeySequence, QMouseEvent, QPainter, QPainterPath, QPen, QShortcut
+from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLineEdit, QProgressBar, QPushButton, QStackedWidget,
+                               QTabBar, QVBoxLayout, QWidget)
 from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
@@ -39,15 +40,20 @@ def _out(obj):
     sys.stdout.flush()
 
 
-def norm_url(u: str) -> str:
+def to_url(u: str) -> QUrl:
+    """주소면 그 주소, 아니면 구글 검색. 이미 %EC%98… 처럼 바뀐 글도 한 번만 바뀌게 (두 번 바뀌면 검색창에 %가 보인다)."""
     u = (u or "").strip()
     if not u:
-        return HOME
-    if "://" in u or u.startswith(("about:", "data:")):
-        return u
-    if "." in u and " " not in u:
-        return "https://" + u
-    return "https://www.google.com/search?q=" + quote(u)   # 주소가 아니면 검색
+        return QUrl(HOME)
+    if "://" in u or u.startswith(("about:", "data:")) or ("." in u and " " not in u and not re.search(r"[가-힣]", u)):
+        return QUrl.fromUserInput(u)
+    if re.search(r"%[0-9A-Fa-f]{2}", u):
+        u = unquote(u)
+    url = QUrl("https://www.google.com/search")
+    q = QUrlQuery()
+    q.addQueryItem("q", u.replace("+", " ") if "%" not in u else u)
+    url.setQuery(q)
+    return url
 
 
 class _Reader(QObject):
@@ -116,6 +122,9 @@ class NavButton(QPushButton):
             path.lineTo(cx + 6.5, cy - 0.5)
             p.drawPath(path)
             p.drawRoundedRect(QRectF(cx - 4.5, cy - 2, 9, 8), 1.5, 1.5)
+        elif k == "plus":
+            p.drawLine(QPointF(cx - 6, cy), QPointF(cx + 6, cy))
+            p.drawLine(QPointF(cx, cy - 6), QPointF(cx, cy + 6))
         elif k == "external":   # 네모 + 오른쪽 위 화살표 (내 브라우저로 열기)
             p.drawRoundedRect(QRectF(cx - 6, cy - 4, 10, 10), 2, 2)
             p.drawLine(QPointF(cx - 0.5, cy + 0.5), QPointF(cx + 6.5, cy - 6.5))
@@ -147,6 +156,14 @@ class UrlBox(QLineEdit):
         self.show_url(QUrl(self.full))
 
 
+class Tab:
+    """탭 하나 = 페이지 하나. id 는 1, 2, 3… (퍼플루가 browser_switch_tab 으로 고른다)."""
+
+    def __init__(self, tid, view, page):
+        self.id, self.view, self.page = tid, view, page
+        self.waiters = []
+
+
 class Browser(QWidget):
     def __init__(self, light=True, accent="#8B5CF6"):
         super().__init__(None, Qt.FramelessWindowHint | Qt.Tool)
@@ -160,27 +177,60 @@ class Browser(QWidget):
         ua = self.profile.httpUserAgent()
         self.profile.setHttpUserAgent(" ".join(t for t in ua.split() if not t.startswith("QtWebEngine")))
         self._hide_google_footer()
-        self.page_ = QWebEnginePage(self.profile, self)
-        self.view = QWebEngineView()
-        self.view.setPage(self.page_)
-        # 새 창·새 탭으로 열려는 링크도 이 탭 하나에서 (탭이 늘어나지 않게)
-        self.page_.newWindowRequested.connect(lambda req: self.page_.setUrl(req.requestedUrl()))
+        self.tabs: list[Tab] = []
+        self._next_id = 1
+        self._loading = False
 
         bg, fg, dim, field, line = (("#FFFFFF", "#18181B", "#71717A", "#F4F4F5", "#E4E4E7") if light
                                     else ("#18181B", "#F4F4F5", "#A1A1AA", "#27272A", "#3F3F46"))
         # 윗줄만 내 색: 바탕은 아주 옅게, 주소창은 조금 더, 아이콘은 내 색
         top, field, hover = mix(bg, accent, 0.06 if light else 0.12), mix(bg, accent, 0.13 if light else 0.22), mix(bg, accent, 0.22 if light else 0.32)
+        strip = mix(bg, accent, 0.14 if light else 0.2)   # 탭 줄 바탕 (고른 탭은 윗줄과 같은 색으로 이어진다)
         self.setStyleSheet(f"Browser {{ background:{bg}; }}")
+
+        # ---- 탭 줄 ----
+        tabrow = QFrame()
+        tabrow.setObjectName("tabrow")
+        tabrow.setStyleSheet(f"QFrame#tabrow {{ background:{strip}; }}")
+        tr = QHBoxLayout(tabrow)
+        tr.setContentsMargins(6, 5, 6, 0)
+        tr.setSpacing(2)
+        self.tabbar = QTabBar()
+        self.tabbar.setTabsClosable(True)
+        self.tabbar.setMovable(True)
+        self.tabbar.setExpanding(False)
+        self.tabbar.setDocumentMode(True)
+        self.tabbar.setElideMode(Qt.ElideRight)
+        self.tabbar.setUsesScrollButtons(True)
+        self.tabbar.setDrawBase(False)
+        self.tabbar.setStyleSheet(
+            f"QTabBar {{ background:transparent; }}"
+            f"QTabBar::tab {{ background:transparent; color:{dim}; border:none; border-top-left-radius:9px; border-top-right-radius:9px;"
+            f" padding:6px 6px 6px 10px; margin-right:1px; min-width:60px; max-width:170px; font-size:9pt; }}"
+            f"QTabBar::tab:selected {{ background:{top}; color:{fg}; }}"
+            f"QTabBar::tab:hover:!selected {{ background:{mix(strip, bg, 0.45)}; }}"
+            f"QTabBar::close-button {{ subcontrol-position:right; }}")
+        self.tabbar.currentChanged.connect(self._tab_changed)
+        self.tabbar.tabCloseRequested.connect(lambda i: self.close_tab(self._tab_at(i)))
+        self.tabbar.tabMoved.connect(self._tab_moved)
+        tr.addWidget(self.tabbar, 0, Qt.AlignBottom)
+        self.b_new = NavButton("plus", "새 탭 (Ctrl+T)", accent, hover, accent)
+        self.b_new.setFixedSize(28, 28)
+        self.b_new.clicked.connect(lambda: self.new_tab(HOME))
+        tr.addWidget(self.b_new, 0, Qt.AlignVCenter)
+        tr.addStretch(1)
+
+        # ---- 윗줄: 뒤로 앞으로 새로고침 [주소] 밖에서 열기 ----
         bar = QFrame()
         bar.setObjectName("bar")
         bar.setStyleSheet(f"QFrame#bar {{ background:{top}; }}")
         h = QHBoxLayout(bar)
-        h.setContentsMargins(8, 7, 8, 7)
+        h.setContentsMargins(8, 6, 8, 6)
         h.setSpacing(2)
         mk = lambda kind, tip: NavButton(kind, tip, accent, hover, accent)   # noqa: E731
         self.b_back, self.b_fwd, self.b_reload = mk("back", "뒤로"), mk("forward", "앞으로"), mk("reload", "새로고침")
-        self.b_back.clicked.connect(self.view.back)
-        self.b_fwd.clicked.connect(self.view.forward)
+        self.b_back.clicked.connect(lambda: self.view.back())
+        self.b_fwd.clicked.connect(lambda: self.view.forward())
         self.b_reload.clicked.connect(lambda: self.view.stop() if self._loading else self.view.reload())
         for b in (self.b_back, self.b_fwd, self.b_reload):
             h.addWidget(b)
@@ -197,7 +247,7 @@ class Browser(QWidget):
         self.url.setPlaceholderText("주소나 검색어")
         self.url.setStyleSheet(f"QLineEdit {{ background:transparent; color:{fg}; border:none; padding:6px 0; font-size:10pt; }}"
                                f"QLineEdit::placeholder {{ color:{dim}; }}")
-        self.url.returnPressed.connect(lambda: (self.view.setUrl(QUrl(norm_url(self.url.text()))), self.view.setFocus()))
+        self.url.returnPressed.connect(lambda: (self.view.setUrl(to_url(self.url.text())), self.view.setFocus()))
         self.url.installEventFilter(self)
         self._pill = pill
         pl.addWidget(self.url, 1)
@@ -216,24 +266,104 @@ class Browser(QWidget):
         self.progress.setFixedHeight(2)
         self.progress.setTextVisible(False)
         self.progress.setStyleSheet(f"QProgressBar {{ background:{line}; border:none; }} QProgressBar::chunk {{ background:{accent}; }}")
-        self._loading = False
-        self.view.loadStarted.connect(lambda: self._set_loading(True))
-        self.view.loadProgress.connect(self.progress.setValue)
-        self.view.loadFinished.connect(lambda _: self._set_loading(False))
-        self.view.urlChanged.connect(self._url_changed)
-        self.view.setZoomFactor(0.9)   # 대화창 위 좁은 칸에서도 한눈에
 
+        self.stack = QStackedWidget()
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
+        v.addWidget(tabrow)
         v.addWidget(bar)
         v.addWidget(self.progress)
-        v.addWidget(self.view, 1)
-        self._set_loading(False)
+        v.addWidget(self.stack, 1)
 
-        self._load_waiters = []
-        self.view.loadFinished.connect(self._loaded)
-        self.view.setUrl(QUrl(HOME))
+        # 크롬과 같은 단축키
+        for keys, fn in (("Ctrl+T", lambda: (self.new_tab(HOME), self.url.setFocus())), ("Ctrl+W", lambda: self.close_tab(self.cur)),
+                         ("Ctrl+Tab", lambda: self._step_tab(1)), ("Ctrl+Shift+Tab", lambda: self._step_tab(-1)),
+                         ("Ctrl+L", lambda: self.url.setFocus()), ("F5", lambda: self.view.reload()),
+                         ("Alt+Left", lambda: self.view.back()), ("Alt+Right", lambda: self.view.forward())):
+            QShortcut(QKeySequence(keys), self, fn, context=Qt.WindowShortcut)
+        self.new_tab(HOME)
+
+    # ---- 탭 ----
+    @property
+    def cur(self) -> Tab:
+        return self._tab_at(self.tabbar.currentIndex()) or self.tabs[0]
+
+    @property
+    def view(self):
+        return self.cur.view
+
+    @property
+    def page_(self):
+        return self.cur.page
+
+    def _tab_at(self, i):
+        tid = self.tabbar.tabData(i)
+        return next((t for t in self.tabs if t.id == tid), None)
+
+    def _index_of(self, tab):
+        return next((i for i in range(self.tabbar.count()) if self.tabbar.tabData(i) == tab.id), -1)
+
+    def find(self, tid):
+        return next((t for t in self.tabs if t.id == int(tid)), None)
+
+    def new_tab(self, url, switch=True) -> Tab:
+        page = QWebEnginePage(self.profile, self)
+        view = QWebEngineView()
+        view.setPage(page)
+        view.setZoomFactor(0.9)   # 대화창 위 좁은 칸에서도 한눈에
+        tab = Tab(self._next_id, view, page)
+        self._next_id += 1
+        self.tabs.append(tab)
+        self.stack.addWidget(view)
+        i = self.tabbar.addTab("새 탭")
+        self.tabbar.setTabData(i, tab.id)
+        # 새 창·새 탭으로 열려는 링크는 새 탭으로 (뒤에서 열라는 건 뒤에서)
+        page.newWindowRequested.connect(lambda req: self.new_tab(req.requestedUrl(), switch=req.destination() != req.DestinationType.InNewBackgroundTab))
+        page.titleChanged.connect(lambda t, tab=tab: self._set_title(tab, t))
+        page.iconChanged.connect(lambda ic, tab=tab: self.tabbar.setTabIcon(self._index_of(tab), ic))
+        view.loadStarted.connect(lambda tab=tab: tab is self.cur and self._set_loading(True))
+        view.loadProgress.connect(lambda p, tab=tab: tab is self.cur and self.progress.setValue(p))
+        view.loadFinished.connect(lambda ok, tab=tab: self._loaded(tab))
+        view.urlChanged.connect(lambda u, tab=tab: tab is self.cur and self._url_changed(u))
+        page.windowCloseRequested.connect(lambda tab=tab: self.close_tab(tab))
+        view.setUrl(url if isinstance(url, QUrl) else to_url(url))
+        if switch:
+            self.tabbar.setCurrentIndex(i)
+        return tab
+
+    def close_tab(self, tab):
+        if tab is None:
+            return
+        if len(self.tabs) == 1:   # 마지막 탭은 닫는 대신 처음 화면으로
+            tab.view.setUrl(QUrl(HOME))
+            return
+        i = self._index_of(tab)
+        self.tabs.remove(tab)
+        self.tabbar.removeTab(i)
+        self.stack.removeWidget(tab.view)
+        tab.view.deleteLater()
+
+    def _step_tab(self, d):
+        n = self.tabbar.count()
+        self.tabbar.setCurrentIndex((self.tabbar.currentIndex() + d) % n)
+
+    def _tab_changed(self, i):
+        tab = self._tab_at(i)
+        if tab is None:
+            return
+        self.stack.setCurrentWidget(tab.view)
+        self.url.show_url(tab.page.url())
+        self._set_loading(tab.page.isLoading() if hasattr(tab.page, "isLoading") else False)
+
+    def _tab_moved(self, *_):
+        pass   # 탭 줄의 순서만 바뀌고, 탭 번호(id)는 그대로
+
+    def _set_title(self, tab, t):
+        i = self._index_of(tab)
+        if i >= 0:
+            self.tabbar.setTabText(i, t or "새 탭")
+            self.tabbar.setTabToolTip(i, t)
 
     def eventFilter(self, obj, e):
         if obj is self.url and e.type() in (QEvent.FocusIn, QEvent.FocusOut):   # 주소창을 누르면 테두리를 내 색으로
@@ -306,19 +436,22 @@ class Browser(QWidget):
         except Exception as e:
             reply({"ok": False, "error": f"{type(e).__name__}: {e}"})
 
-    def _loaded(self, ok):
-        waiters, self._load_waiters = self._load_waiters, []
+    def _loaded(self, tab):
+        if tab is self.cur:
+            self._set_loading(False)
+        waiters, tab.waiters = tab.waiters, []
         for w in waiters:
             w()
 
-    def _after_load(self, fn, timeout=20000):
+    def _after_load(self, fn, timeout=20000, tab=None):
+        tab = tab or self.cur
         done = {"x": False}
 
         def once():
             if not done["x"]:
                 done["x"] = True
                 QTimer.singleShot(400, fn)   # 그려질 시간을 조금 준다
-        self._load_waiters.append(once)
+        tab.waiters.append(once)
         QTimer.singleShot(timeout, once)
 
     def _js(self, call: str, cb):
@@ -327,26 +460,40 @@ class Browser(QWidget):
         self.page_.runJavaScript(PAGE_JS + "\n;JSON.stringify(" + call + ")", 0,
                                  lambda r: cb(json.loads(r) if isinstance(r, str) and r else None))
 
-    def _info(self):
-        return {"title": self.page_.title(), "url": self.page_.url().toString()}
+    def _info(self, tab=None):
+        tab = tab or self.cur
+        return {"tab_id": tab.id, "title": tab.page.title(), "url": tab.page.url().toString()}
 
     def c_open(self, a, reply):
-        self.view.setUrl(QUrl(norm_url(a.get("url", ""))))
-        self._after_load(lambda: reply({"ok": True, "tab_id": 1, "opened": self.page_.title() or a.get("url"), **self._info()}))
+        if a.get("new_tab"):
+            tab = self.new_tab(to_url(a.get("url", "")))
+        else:
+            tab = self.cur
+            tab.view.setUrl(to_url(a.get("url", "")))
+        self._after_load(lambda: reply({"ok": True, "opened": tab.page.title() or a.get("url"), **self._info(tab)}), tab=tab)
 
     def c_tabs(self, a, reply):
-        reply({"ok": True, "tabs": [{"tab_id": 1, "active": True, **self._info()}]})
+        order = [self._tab_at(i) for i in range(self.tabbar.count())]
+        reply({"ok": True, "tabs": [{**self._info(t), "active": t is self.cur} for t in order if t]})
 
     def c_switch(self, a, reply):
-        reply({"ok": True, "tab_id": 1, **self._info()})
+        tab = self.find(a.get("tab_id", 0))
+        if not tab:
+            return reply({"ok": False, "error": "그 번호의 탭이 없어요. browser_tabs로 번호를 확인하세요."})
+        self.tabbar.setCurrentIndex(self._index_of(tab))
+        reply({"ok": True, **self._info(tab)})
 
     def c_close(self, a, reply):
-        self.view.setUrl(QUrl(HOME))
-        reply({"ok": True, "closed": True})
+        tab = self.find(a["tab_id"]) if a.get("tab_id") is not None else self.cur
+        if not tab:
+            return reply({"ok": False, "error": "그 번호의 탭이 없어요."})
+        self.close_tab(tab)
+        reply({"ok": True, "closed": True, "tabs_left": len(self.tabs)})
 
     def c_read(self, a, reply):
         n = int(a.get("max_chars") or 6000)
-        self._js(f"PURPLU_PAGE.pageRead({n})", lambda r: reply({"ok": True, "tab_id": 1, **(r or {})}))
+        tab = self.cur
+        self._js(f"PURPLU_PAGE.pageRead({n})", lambda r: reply({"ok": True, "tab_id": tab.id, "tabs_open": len(self.tabs), **(r or {})}))
 
     def _mouse(self, x, y, double=False, right=False):
         target = self.view.focusProxy() or self.view
