@@ -268,6 +268,9 @@
   <div style="max-width:560px;background:#1B1230;border:1px solid #2E1F4F;border-radius:20px;padding:22px;line-height:1.6;color:#F5F3FF">
     <h2 style="margin:0 0 8px">💜 퍼플루 PC에 연결하기</h2>
     <p style="margin:6px 0;color:#C4B5FD">PC와 <b>같은 와이파이</b>에서만 연결돼요. PC의 퍼플루가 켜져 있어야 해요.</p>
+    <p style="margin:10px 0;padding:12px;border-radius:12px;background:#241640"><b>가장 쉬운 방법:</b> PC 퍼플루 → 설정 → 📱 갤럭시 탭의 <b>QR을 이 탭 카메라로 찍기</b>.<br>
+      인증서 없이, 경고 없이 목소리까지 돼요. 한 번만 하면 다음부터는 바로 연결돼요.</p>
+    <p style="margin:12px 0 4px;color:#A1A1AA">(예전 방식) PC 주소로 직접:</p>
     <label style="display:block;margin:12px 0 4px">PC 주소 (PC 퍼플루 설정 → 갤럭시 탭에 나와요)</label>
     <div style="display:flex;gap:8px"><input id="pcaddr" placeholder="192.168.0.10:8766" style="flex:1;padding:12px;border-radius:10px;border:1px solid #4C3A75;background:#241640;color:#fff;font-size:16px">
       <button class="btn main" id="savepc">연결</button></div>
@@ -358,6 +361,79 @@ const qpc = new URLSearchParams(location.search).get("pc");
 if (REMOTE && qpc) { try { localStorage.setItem("purplu_pc", qpc); } catch {} history.replaceState(null, "", location.pathname); }
 let PC = REMOTE ? (qpc || (() => { try { return localStorage.getItem("purplu_pc"); } catch { return null; } })()) : location.host;
 const pcUrl = path => REMOTE ? `https://${PC}${path}` : path;   // 그림 등 PC 파일 주소
+// 짝 링크(#fb=Firebase주소&k=짝열쇠)로 열었으면 기억 → WebRTC 로 PC에 붙는다 (인증서 없이, 경고 없이, 마이크까지)
+const hashq = new URLSearchParams(location.hash.slice(1));
+if (REMOTE && hashq.get("k")) {
+  try { localStorage.setItem("purplu_fb", hashq.get("fb") || ""); localStorage.setItem("purplu_key", hashq.get("k")); } catch {}
+  history.replaceState(null, "", location.pathname);   // 열쇠가 주소창·기록에 남지 않게
+}
+const RTC_FB = REMOTE ? (() => { try { return localStorage.getItem("purplu_fb"); } catch { return null; } })() : null;
+const RTC_KEY = REMOTE ? (() => { try { return localStorage.getItem("purplu_key"); } catch { return null; } })() : null;
+
+// 웹소켓 대신 쓰는 WebRTC 데이터 채널 (같은 모양: send / readyState / onopen / onmessage / onclose)
+class RtcSocket {
+  constructor(fb, key) {
+    this.readyState = 0; this.binaryType = "arraybuffer"; this.parts = {};
+    this.start(fb.replace(/\/$/, ""), key).catch(e => { console.warn("WebRTC:", e); this.shut(); });
+  }
+  async mac(key, text) {
+    const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const sig = await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(text));
+    return [...new Uint8Array(sig)].map(b => b.toString(16).padStart(2, "0")).join("");
+  }
+  async start(fb, key) {
+    const pc = this.pc = new RTCPeerConnection({ iceServers: [] });   // STUN 없음 = 같은 와이파이에서만
+    const ch = this.ch = pc.createDataChannel("purplu", { ordered: true });
+    ch.binaryType = "arraybuffer";
+    ch.onopen = () => { this.readyState = 1; this.onopen && this.onopen(); };
+    ch.onclose = () => this.shut();
+    ch.onmessage = e => this.got(e.data);
+    pc.onconnectionstatechange = () => { if (["failed", "closed"].includes(pc.connectionState)) this.shut(); };
+    setTimeout(() => { if (this.readyState === 0) this.shut(); }, 25000);
+    await pc.setLocalDescription(await pc.createOffer());
+    await new Promise(ok => {   // 내 주소 후보를 다 모을 때까지 (길어도 3초)
+      if (pc.iceGatheringState === "complete") return ok();
+      pc.onicegatheringstatechange = () => pc.iceGatheringState === "complete" && ok();
+      setTimeout(ok, 3000);
+    });
+    const sid = crypto.randomUUID().replace(/-/g, "").slice(0, 16), t = Date.now(), sdp = pc.localDescription.sdp;
+    const base = `${fb}/purplu/rtc/${sid}`;
+    await fetch(`${base}.json`, { method: "PUT", body: JSON.stringify({ offer: { sdp, type: "offer" }, t, mac: await this.mac(key, `${sid}|${t}|${sdp}`) }) });
+    for (let i = 0; i < 40 && this.readyState === 0; i++) {   // PC의 대답 기다리기 (20초)
+      await new Promise(r => setTimeout(r, 500));
+      const row = await (await fetch(`${base}.json`, { cache: "no-store" })).json();
+      if (row && row.answer) {
+        if (row.mac2 !== await this.mac(key, `${sid}|answer|${row.answer.sdp}`)) throw new Error("PC 서명이 틀려요");
+        await pc.setRemoteDescription(row.answer);
+        return;
+      }
+    }
+    throw new Error("PC가 대답하지 않아요 (퍼플루가 켜져 있나요?)");
+  }
+  got(d) {
+    if (typeof d === "string" && d.startsWith('{"_chunk"')) {   // 큰 글은 나눠서 온다
+      const m = JSON.parse(d), p = (this.parts[m._chunk] ||= []);
+      p[m.i] = m.d;
+      if (p.filter(x => x !== undefined).length < m.n) return;
+      delete this.parts[m._chunk]; d = p.join("");
+    }
+    this.onmessage && this.onmessage({ data: d });
+  }
+  send(d) {
+    if (this.readyState !== 1) return;
+    if (typeof d === "string" && d.length > 48000) {
+      const id = Math.random().toString(16).slice(2, 10), n = Math.ceil(d.length / 48000);
+      for (let i = 0; i < n; i++) this.ch.send(JSON.stringify({ _chunk: id, i, n, d: d.slice(i * 48000, (i + 1) * 48000) }));
+    } else this.ch.send(d);
+  }
+  close() { this.shut(); }
+  shut() {
+    if (this.readyState === 3) return;
+    this.readyState = 3;
+    try { this.pc && this.pc.close(); } catch {}
+    this.onclose && this.onclose();
+  }
+}
 const RING = { listening:"#A855F7", thinking:"#F59E0B", acting:"#3B82F6", speaking:"#FF9AD0" };
 let state = "sleep", level = 0, talking = false, pressing = false, ws = null, settings = {};
 let mouse = null, mouseAt = -1e9, touchGaze = null;
@@ -680,14 +756,16 @@ function applyColor() {
     .catch(() => {});   // 인증서가 없으면 그냥 http 로 (경고 없이, 글 채팅은 다 된다)
 })();
 function connect() {
-  if (REMOTE && !PC) { showSetup(); return; }
-  ws = new WebSocket(REMOTE ? `wss://${PC}/ws` : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+  const useRtc = REMOTE && RTC_FB && RTC_KEY;
+  if (REMOTE && !useRtc && !PC) { showSetup(); return; }
+  ws = useRtc ? new RtcSocket(RTC_FB, RTC_KEY)
+              : new WebSocket(REMOTE ? `wss://${PC}/ws` : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
   let opened = false;
   ws.binaryType = "arraybuffer";
   ws.onopen = () => { opened = true; failCount = 0; $("#dot").className = "on"; $("#setup").style.display = "none"; send({ type: "chat_history" }); };
   ws.onclose = () => {
     $("#dot").className = "";
-    if (REMOTE && !opened && ++failCount >= 2) showSetup();   // 인증서 허용 전이거나 다른 와이파이
+    if (REMOTE && !opened && ++failCount >= 2) showSetup();   // 짝 링크가 없거나, PC가 꺼졌거나, 다른 와이파이
     setTimeout(connect, 2500);
   };
   ws.onmessage = e => {

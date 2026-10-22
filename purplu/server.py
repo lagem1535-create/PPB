@@ -420,6 +420,12 @@ class TabletServer:
             print("탭 서버 시작 실패:", e)
             return
         self.loop.create_task(self._send_mouse())
+        try:   # GitHub Pages 화면은 WebRTC 로 붙는다 (인증서 없이)
+            from .rtc import RtcBridge
+            self.rtc = RtcBridge(self)
+            threading.Timer(3, self.rtc.check).start()   # 켜지기 전에 와 있던 연결 요청도
+        except Exception as e:
+            print("WebRTC 준비 실패:", e)
         self.loop.run_forever()
 
     async def _send_mouse(self):
@@ -499,9 +505,14 @@ class TabletServer:
         return False
 
     def pages_link(self) -> str:
-        """GitHub Pages 링크 (PC 주소를 붙여서 그대로 열면 바로 연결)."""
+        """GitHub Pages 짝 링크: #fb=Firebase주소&k=짝열쇠 (# 뒤라서 깃허브로는 안 보내진다).
+        탭이 이 링크를 한 번 열면 기억해 두고, 그다음부터는 Pages 주소만 열어도 WebRTC 로 PC에 붙는다."""
         pages = (config.settings().get("pages_url") or "").strip()
-        return f"{pages.rstrip('/')}/?pc={self.ip}:{self.https_port}" if pages else ""
+        if not pages:
+            return ""
+        from urllib.parse import quote
+        from . import rtc
+        return f"{pages.rstrip('/')}/#fb={quote(store.DB_URL, safe='')}&k={rtc.key()}"
 
     async def _ws(self, request):
         if not self._allowed(request):
@@ -512,17 +523,7 @@ class TabletServer:
         ws = web.WebSocketResponse(heartbeat=20, max_msg_size=16 * 1024 * 1024)
         await ws.prepare(request)
         self.clients.add(ws)
-        await ws.send_str(json.dumps({"type": "hello", "data": {"settings": config.settings(), "voices": config.VOICES,
-                                                                 "python_approval": config.PYTHON_APPROVAL,
-                                                                 "python_warning": config.PYTHON_APPROVAL_WARNING,
-                                                                 "security_levels": config.SECURITY_LEVELS,
-                                                                 "security_warning": config.SECURITY_WARNING,
-                                                                 "security_python": config.SECURITY_PYTHON,
-                                                                 "themes": config.THEMES,
-                                                                 "state": getattr(self.brain, "last_state", "idle"),
-                                                                 "models": {"gemini-3.8-live": "⚡ 빠른 모델",
-                                                                            "gemini-3.8-live-extended-thinking": "🧠 생각하는 모델"}}},
-                                     ensure_ascii=False))
+        await ws.send_str(json.dumps({"type": "hello", "data": self.hello_data()}, ensure_ascii=False))
         try:
             async for msg in ws:
                 if msg.type == WSMsgType.BINARY:
@@ -536,6 +537,14 @@ class TabletServer:
             self.clients.discard(ws)
             self.brain.talk_end()
         return ws
+
+    def hello_data(self) -> dict:
+        return {"settings": config.settings(), "voices": config.VOICES,
+                "python_approval": config.PYTHON_APPROVAL, "python_warning": config.PYTHON_APPROVAL_WARNING,
+                "security_levels": config.SECURITY_LEVELS, "security_warning": config.SECURITY_WARNING,
+                "security_python": config.SECURITY_PYTHON, "themes": config.THEMES,
+                "state": getattr(self.brain, "last_state", "idle"),
+                "models": {"gemini-3.8-live": "⚡ 빠른 모델", "gemini-3.8-live-extended-thinking": "🧠 생각하는 모델"}}
 
     async def _reply(self, ws, kind, data):
         await ws.send_str(json.dumps({"type": kind, "data": data}, ensure_ascii=False, default=str))

@@ -140,9 +140,19 @@ def listen(on_settings, on_conversations, on_memos=None):
     threading.Thread(target=run, daemon=True, name="purplu-sync").start()
 
 
+rtc_listener = None   # WebRTC 연결 요청(/rtc)이 오면 부를 함수 (server.RtcBridge)
+
+
 def _dispatch(msg: dict, on_settings, on_conversations, on_memos=None):
     path = (msg.get("path") or "/").strip("/")
     top = path.split("/")[0] if path else ""
+    if top in ("", "rtc") and rtc_listener:
+        try:
+            rtc_listener()
+        except Exception as e:
+            print("WebRTC 요청 확인 실패:", e)
+        if top == "rtc":
+            return
     if top in ("", "settings"):
         try:
             settings = get("settings")

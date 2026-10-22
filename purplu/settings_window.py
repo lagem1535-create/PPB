@@ -1214,13 +1214,12 @@ class SettingsWindow(QWidget):
         self.qr = QLabel()
         guide = QLabel(
             "1. 갤럭시 탭을 PC와 같은 와이파이에 연결해요.\n"
-            "2. 탭의 카메라로 QR을 찍거나, 브라우저에 위 주소를 입력해요.\n"
-            "   → 경고 없이 바로 열려요 (크롬·삼성 인터넷·카카오톡 안 브라우저 모두). 글 채팅은 바로 돼요.\n"
-            "3. 목소리(마이크)도 쓰려면 처음 한 번 인증서 설치: 탭에서 http://" + local_ip() + ":"
-            + str(config.settings()["tablet_port"]) + "/setup 을 열고 안내대로\n"
-            "   (설치하면 다음부터 저절로 https 로 바뀌고 경고도 안 떠요. 카카오톡 안에서는 목소리만 안 돼요.)\n"
-            "   PC와 같은 와이파이에서만 열려요. 다른 와이파이·인터넷에서는 막혀요.\n"
-            "4. 크롬 메뉴 ⋮ → '홈 화면에 추가'로 앱처럼 쓰기.\n\n"
+            "2. 탭의 카메라로 QR을 찍어요 (깃허브 퍼플루 화면이 열려요).\n"
+            "   → 경고 없이, 인증서 없이 목소리까지 돼요. 한 번 열면 기억해서 다음부턴 위 주소만 열어도 돼요.\n"
+            "   QR 에는 PC와 짝짓는 비밀 열쇠가 들어 있어요. 다른 사람에게 보여 주지 마세요.\n"
+            "   PC와 같은 와이파이에서만 연결돼요.\n"
+            "3. 크롬 메뉴 ⋮ → '홈 화면에 추가'로 앱처럼 쓰기.\n"
+            "   (깃허브가 안 되면: 탭에서 http://" + local_ip() + ":" + str(config.settings()["tablet_port"]) + " — 글 채팅은 바로 돼요)\n\n"
             "탭에서: 퍼플루를 꾹 누르고 있는 동안 말하고, 떼면 대답해요.\n"
             "            오른쪽 위 ⚙ 버튼(또는 마우스 우클릭)으로 설정·대화목록·메모를 열어요.\n\n"
             "안 될 때: Windows 방화벽 창이 뜨면 '개인 네트워크' 허용. 공유기의 '게스트 와이파이'는 안 돼요.")
@@ -1244,8 +1243,10 @@ class SettingsWindow(QWidget):
         return w
 
     def _refresh_tablet(self):
-        url = self.tablet_url_fn()   # 경고 없는 http 주소 (GitHub Pages 주소는 인증서를 설치해야 PC에 붙는다)
-        self.tablet_url.setText(url)
+        pages = getattr(self, "pages_link_fn", None)
+        url = (pages() if pages else "") or self.tablet_url_fn()   # GitHub Pages 짝 링크 (WebRTC: 인증서 없이 목소리까지)
+        self.tablet_url.setText(url.split("#")[0] + (" (QR 에 짝 열쇠 포함)" if "#" in url else ""))
+        self.tablet_url.setToolTip("QR 에는 PC와 짝짓는 비밀 열쇠가 들어 있어요. 다른 사람에게 보여 주지 마세요.")
         if self.local_url_fn:
             self.local_url.setText(f"이 PC 브라우저에서 시험해 보려면: {self.local_url_fn()}")
         problem = self.network_problem_fn() if self.network_problem_fn else ""

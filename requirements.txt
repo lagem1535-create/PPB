@@ -21,3 +21,4 @@ winrt-Windows.Foundation.Collections>=3
 pycaw>=20240210
 psutil>=6
 mcp>=2.3
+aiortc>=1.15
