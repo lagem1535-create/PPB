@@ -429,6 +429,11 @@ def main():
     w.move(-20000, -20000)   # 대화창에 끼워지기 전엔 화면 밖에서 그려 둔다
     w.show()
     _out({"hwnd": int(w.winId())})
+    parent = next((int(a.split("=", 1)[1]) for a in sys.argv if a.startswith("--parent=")), 0)
+    if parent:   # 퍼플루가 강제로 꺼져도 혼자 남지 않게 3초마다 확인
+        import psutil
+        watch = QTimer(timeout=lambda: psutil.pid_exists(parent) or app.quit())
+        watch.start(3000)
     reader = _Reader()
     reader.got.connect(w.handle)
     threading.Thread(target=reader.run, daemon=True).start()
