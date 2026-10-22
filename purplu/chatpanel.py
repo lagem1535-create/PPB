@@ -520,7 +520,7 @@ class ChatPanel(QWidget):
         for wdg in (self.conv, self.status):
             wdg.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)   # 글자가 길어도 창이 넓어지지 않게
             wdg.setMinimumWidth(40)
-        self.conv.setMinimumWidth(190)   # 대화 제목이 너무 잘리지 않게
+        self.conv.setMinimumWidth(120)   # 대화 제목이 너무 잘리지 않게
         self.status.setMinimumWidth(96)   # '말하는 중' 이 잘리지 않게
         head.addWidget(self.title)
         head.addSpacing(6)
@@ -968,7 +968,7 @@ class ChatPanel(QWidget):
     def _show_title(self, title: str):
         t = title or "새 대화"
         fm = self.conv.fontMetrics()
-        self.conv.setText(fm.elidedText(t, Qt.ElideRight, 165) + " ▾")
+        self.conv.setText(fm.elidedText(t, Qt.ElideRight, 120) + " ▾")   # 아이콘을 덮지 않게 (끝은 …)
         self.conv.setToolTip(f"{t}\n누르면 대화 바꾸기 · 이름 바꾸기")
 
     def _load_convs(self):
@@ -1056,6 +1056,8 @@ class ChatPanel(QWidget):
         if which == 2 and self.term is None:   # 터미널은 처음 열 때 만든다
             from .terminal import Terminal
             self.term = Terminal(str(config.BASE_DIR), pal(), self._cc)
+            self.term.close_clicked.connect(lambda: self._show_top(0))
+            self.term.expand_clicked.connect(self._term_expand)
             self.top.addWidget(self.term)
             for line in self._term_backlog:
                 self.term.purplu_ran.emit(*line)
@@ -1082,7 +1084,12 @@ class ChatPanel(QWidget):
             else:
                 threading.Thread(target=ob.start, daemon=True).start()
         else:
-            self.term.inp.setFocus()
+            self.term.focus()
+
+    def _term_expand(self):
+        """터미널 ⤢: 위쪽을 크게(대화는 조금만) ↔ 보통."""
+        self._term_big = not getattr(self, "_term_big", False)
+        self._lay.setStretch(0, 88 if self._term_big else 60)
 
     def _top_index(self) -> int:
         w = self.top.currentWidget()
