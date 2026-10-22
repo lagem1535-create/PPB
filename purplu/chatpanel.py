@@ -38,6 +38,7 @@ COMMANDS = [
     ("chats", "다른 대화로 바꾸기"),
     ("web", "위쪽을 퍼플루 ↔ 퍼플루 브라우저로"),
     ("term", "위쪽을 퍼플루 ↔ 터미널로"),
+    ("hide", "위 칸(퍼플루·브라우저·터미널) 숨기기 / 보이기"),
     ("model", "빠른 모델 ↔ 생각하는 모델"),
     ("mini", "작은 모드 켜기/끄기"),
     ("pin", "오른쪽에 고정 / 풀기"),
@@ -254,6 +255,13 @@ class IconButton(QPushButton):
                 p.setBrush(accent)
             p.drawPath(path)
             p.drawLine(QPointF(cx, cy + 2), QPointF(cx, cy + 8))
+        elif k == "top":
+            p.drawRoundedRect(QRectF(cx - 8, cy - 7, 16, 14), 2.5, 2.5)
+            p.drawLine(QPointF(cx - 8, cy - 1), QPointF(cx + 8, cy - 1))
+            if self.active:
+                p.setBrush(col)
+                p.drawRoundedRect(QRectF(cx - 8, cy - 7, 16, 6), 2.5, 2.5)
+                p.setBrush(Qt.NoBrush)
         elif k == "face":
             path = QPainterPath()
             path.moveTo(cx - 7, cy + 6)
@@ -432,7 +440,14 @@ class ChatPanel(QWidget):
         self.btn_face.active = True
         tw.addWidget(self.switch)
         tw.addWidget(self.top, 1)
-        lay.addWidget(self.topwrap, 34)
+        from PySide6.QtWidgets import QSplitter
+        self.split = QSplitter(Qt.Vertical)
+        self.split.setChildrenCollapsible(False)
+        self.split.setHandleWidth(10)
+        self.split.addWidget(self.topwrap)
+        self.split.splitterMoved.connect(self._split_moved)
+        self._split_save = QTimer(self, singleShot=True, interval=700, timeout=self._save_split)
+        lay.addWidget(self.split, 1)
         self._lay = lay
         self._web_hwnd.connect(self._embed_web)
         self._web_used.connect(lambda: self._show_web(True, auto=True))
@@ -468,6 +483,8 @@ class ChatPanel(QWidget):
         head.addWidget(self.conv, 0)
         head.addWidget(self.status)
         head.addStretch(1)
+        self.btn_top = IconButton("top", "위 칸(퍼플루·브라우저·터미널) 보이기 / 숨기기")
+        self.btn_top.clicked.connect(self._toggle_top)
         btn_new = IconButton("new", "새 대화")
         btn_new.clicked.connect(self._new_chat)
         self.btn_mini = IconButton("mini", "작게 / 크게")
@@ -479,7 +496,7 @@ class ChatPanel(QWidget):
         btn_close = IconButton("close", "닫기 (Ctrl+Alt+C로 다시 열기)")
         btn_close.clicked.connect(self._close_clicked)
         head.setSpacing(2)
-        for b in (btn_new, self.btn_mini, self.btn_pin, btn_set):
+        for b in (self.btn_top, btn_new, self.btn_mini, self.btn_pin, btn_set):
             head.addWidget(b)
         sep = QFrame()
         sep.setFixedSize(1, 16)
@@ -580,7 +597,9 @@ class ChatPanel(QWidget):
         tools.addWidget(self.b_send)
         gl.addLayout(tools)
         bl.addWidget(self.glow)
-        lay.addWidget(self.body, 66)
+        self.split.addWidget(self.body)
+        self.split.setStretchFactor(0, 34)
+        self.split.setStretchFactor(1, 66)
 
         self._mentions_ready.connect(self._got_mentions)
         self._history_ready.connect(self._got_history)
@@ -624,8 +643,10 @@ class ChatPanel(QWidget):
             QListWidget#sugg::item:selected {{ background:{P['bubble']}; color:{P['text']}; }}
             QScrollBar:vertical {{ width:6px; background:transparent; }}
             QScrollBar::handle:vertical {{ background:{P['line']}; border-radius:3px; }}
+            QSplitter::handle:vertical {{ background:{P['bg']}; image:none; border-top:1px solid {P['line']}; }}
+            QSplitter::handle:vertical:hover {{ background:{cc}; border-top:1px solid {cc}; }}
         """)
-        self.topwrap.setVisible((s.get("pc_layout", "stack") != "full" or self._top_index() != 0) and not self.mini)
+        self._apply_top()
         idx = self.model.findData(s.get("live_model"))
         if idx >= 0:
             self.model.setCurrentIndex(idx)
@@ -1007,13 +1028,14 @@ class ChatPanel(QWidget):
         for b, n in ((self.btn_face, 0), (self.btn_web, 1), (self.btn_term, 2)):
             b.active = which == n
             b.update()
-        self._lay.setStretch(0, 34 if which == 0 else 60)   # 브라우저·터미널일 땐 위쪽을 더 크게
         if which == 0:
-            self.topwrap.setVisible(config.settings().get("pc_layout", "stack") != "full" and not self.mini)
+            self._apply_top()
             return
         if self.mini:
             self._toggle_mini()
-        self.topwrap.show()
+        if config.settings().get("pc_top_hidden") and not auto:   # 내가 고르면 숨긴 위 칸도 다시 보이게
+            config.save_settings(pc_top_hidden=False)
+        self._apply_top()
         if auto and not self.isVisible():
             self.open(False)
         if which == 1:
@@ -1028,7 +1050,51 @@ class ChatPanel(QWidget):
     def _term_expand(self):
         """터미널 ⤢: 위쪽을 크게(대화는 조금만) ↔ 보통."""
         self._term_big = not getattr(self, "_term_big", False)
-        self._lay.setStretch(0, 88 if self._term_big else 60)
+        self._apply_split()
+
+    # ---------------- 위 칸 보이기 · 높이 ----------------
+    def _top_visible(self) -> bool:
+        s = config.settings()
+        if self.mini or s.get("pc_top_hidden"):
+            return False
+        return s.get("pc_layout", "stack") != "full" or self._top_index() != 0
+
+    def _apply_top(self):
+        on = self._top_visible()
+        self.topwrap.setVisible(on)
+        self.btn_top.active = on
+        self.btn_top.update()
+        if on:
+            self._apply_split()
+        else:   # 숨기면 대화가 바로 그 자리까지
+            self.split.setSizes([0, max(200, self.split.height())])
+            self.split.updateGeometry()
+
+    def _toggle_top(self):
+        hide = self.topwrap.isVisible()
+        config.save_settings(pc_top_hidden=hide)
+        if not hide and config.settings().get("pc_layout") == "full" and self._top_index() == 0:
+            config.save_settings(pc_layout="stack")   # '얼굴 안 보이기' 였어도 다시 보이게
+        self._apply_top()
+
+    def _apply_split(self):
+        """끌어서 정한 높이: 얼굴일 때와 브라우저·터미널일 때를 따로 기억한다."""
+        s = config.settings()
+        frac = 0.88 if (getattr(self, "_term_big", False) and self._top_index() == 2) else \
+            float(s.get("pc_split_face" if self._top_index() == 0 else "pc_split_tool") or 0.4)
+        total = max(200, self.split.height())
+        frac = max(0.12, min(0.88, frac))
+        self.split.setSizes([int(total * frac), int(total * (1 - frac))])
+
+    def _split_moved(self, *_):
+        a, b = self.split.sizes()
+        if a and b:
+            self._split_frac = a / (a + b)
+            self._split_save.start()
+
+    def _save_split(self):
+        key = "pc_split_face" if self._top_index() == 0 else "pc_split_tool"
+        config.save_settings(**{key: round(self._split_frac, 3)})
 
     def _top_index(self) -> int:
         w = self.top.currentWidget()
@@ -1071,7 +1137,7 @@ class ChatPanel(QWidget):
             area = QGuiApplication.primaryScreen().availableGeometry()
             self.setGeometry(area.right() - 400, area.bottom() - 290, 380, 270)
         else:
-            self.topwrap.setVisible(config.settings().get("pc_layout", "stack") != "full" or self._top_index() != 0)
+            self._apply_top()
             if getattr(self, "_big_geom", None):
                 self.setGeometry(self._big_geom)
         self._render()
@@ -1287,6 +1353,8 @@ class ChatPanel(QWidget):
             self._toggle_mini()
         elif name == "web":
             self._show_top(0 if self._top_index() == 1 else 1)
+        elif name == "hide":
+            self._toggle_top()
         elif name == "term":
             self._show_top(0 if self._top_index() == 2 else 2)
         elif name == "pin":

@@ -55,6 +55,8 @@ DEFAULTS = {
     "browser_real_input": True,                        # 크롬 확장: 진짜 마우스·키보드(디버거)로 조작
     "face_eyes": "basic", "face_hat": "none", "face_antenna": "none",   # 퍼플루 꾸미기 (/custom)
     "face_extra": "none", "face_hat_color": "",
+    "pc_top_hidden": False,                            # 대화창 위 칸(퍼플루·브라우저·터미널) 숨기기
+    "pc_split_face": 0.34, "pc_split_tool": 0.6,       # 위 칸 높이 (끌어서 바꾼 것을 기억)
     "own_browser": True,                               # 웹 일은 퍼플루 브라우저(대화창 위, 탭 하나)에서
     "browser_highlights": True,                        # 크롬 확장: 사이트 하이라이트·노트
     "python_enabled": True,
