@@ -191,35 +191,70 @@ class _SuggestDelegate(QStyledItemDelegate):
 
 
 # ------------------------------------------------------------------ 메시지 칸 (첫 화면 빛)
-class GlowArea(QWidget):
-    """새 대화 첫 화면: 바닥 가운데에서 옆으로 넓게 퍼지는 빛 (제미나이 첫 화면처럼). 위로 올라오는 띠가 아니라 납작한 타원."""
+class GlowBody(QFrame):
+    """대화 칸 전체. 새 대화 첫 화면이면 바닥에서 옆으로 퍼지는 빛을 그린다 (입력칸 뒤·둘레까지 번짐).
+    색은 내 색과, 내 색에서 색상만 살짝 돌린 두 색 → 서로 어울리게 섞인다. 아주 천천히 흔들리고 숨쉰다."""
 
     def __init__(self):
         super().__init__()
         self.glow = False
-        self.colors = []
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.base = QColor("#8B5CF6")
+        self.dark = False
+        self.anchor = None   # 입력칸: 빛의 가운데를 입력칸 윗부분에 둔다 (입력칸 위·둘레로 번지게)
+        self._t0 = time.monotonic()
+        self._timer = QTimer(self, timeout=self.update)
+
+    def set_glow(self, on: bool, color: str, dark: bool):
+        self.glow, self.base, self.dark = on, QColor(color), dark
+        if on and self.isVisible():
+            self._timer.start(50)
+        else:
+            self._timer.stop()
+        self.update()
+
+    def showEvent(self, e):
+        if self.glow:
+            self._timer.start(50)
+        super().showEvent(e)
+
+    def hideEvent(self, e):
+        self._timer.stop()
+        super().hideEvent(e)
+
+    @staticmethod
+    def _turn(c: QColor, dh: int, ds: float = 1.0, dv: float = 1.0) -> QColor:
+        h, sat, v, _ = c.getHsv()
+        return QColor.fromHsv((max(h, 0) + dh) % 360, max(0, min(255, int(sat * ds))), max(0, min(255, int(v * dv))))
 
     def paintEvent(self, e):
         super().paintEvent(e)
-        if not self.glow or not self.colors:
+        if not self.glow:
             return
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         W, H = self.width(), self.height()
-        # 가운데 내 색 + 양옆에 빛 색 둘 → 옆으로 퍼지며 섞인다
-        spots = [(0.5, self.colors[0], 0.62, 0.30, 95)]
-        if len(self.colors) > 1:
-            spots += [(0.18, self.colors[1], 0.42, 0.22, 60), (0.82, self.colors[-1], 0.42, 0.22, 60)]
-        for fx, col, rx, ry, alpha in spots:
-            c = QColor(col)
+        t = time.monotonic() - self._t0
+        b = self.base
+        strength = 1.0 if self.dark else 0.8
+        breathe = 0.92 + 0.08 * math.sin(t * 0.9)
+        # (가로 위치, 색, 가로 반지름, 세로 반지름, 진하기) — 가운데 넓은 빛 + 양옆 어울리는 색 둘
+        blobs = [
+            (0.50 + 0.03 * math.sin(t * 0.35), b, 0.80, 230, 150),
+            (0.20 + 0.05 * math.sin(t * 0.27 + 1.3), self._turn(b, -38, 1.0, 1.05), 0.50, 170, 120),
+            (0.80 + 0.05 * math.sin(t * 0.31 + 2.1), self._turn(b, 42, 0.9, 1.08), 0.50, 170, 120),
+            (0.50 + 0.08 * math.sin(t * 0.22 + 0.6), self._turn(b, 0, 0.45, 1.25), 1.00, 110, 80),   # 밝은 띠
+        ]
+        a_ = self.anchor
+        cy = (a_.geometry().top() + a_.height() * 0.3) if a_ is not None and a_.isVisible() else H
+        p.setPen(Qt.NoPen)
+        for fx, col, rx, ry, alpha in blobs:
+            a = alpha * strength * breathe
             p.save()
-            p.translate(W * fx, H + H * 0.04)
-            p.scale(W * rx, H * ry)      # 원을 납작하게 → 옆으로 넓은 빛
+            p.translate(W * fx, cy)
+            p.scale(W * rx, ry)   # 원을 납작하게 → 옆으로 넓게 퍼진다 (세로는 화면 크기와 상관없이 일정)
             g = QRadialGradient(0, 0, 1)
-            for stop, a in ((0, alpha), (0.45, alpha * 0.45), (0.75, alpha * 0.12), (1, 0)):
-                g.setColorAt(stop, QColor(c.red(), c.green(), c.blue(), int(a)))
-            p.setPen(Qt.NoPen)
+            for stop, k in ((0, 1), (0.3, 0.62), (0.6, 0.24), (0.82, 0.07), (1, 0)):
+                g.setColorAt(stop, QColor(col.red(), col.green(), col.blue(), int(a * k)))
             p.setBrush(g)
             p.drawEllipse(QPointF(0, 0), 1, 1)
             p.restore()
@@ -532,7 +567,7 @@ class ChatPanel(QWidget):
         ownbrowser_client.listeners.append(self._web_hwnd.emit)
         web_browser.on_use.append(self._web_used.emit)
 
-        self.body = QFrame()
+        self.body = GlowBody()
         self.body.setObjectName("body")
         bl = QVBoxLayout(self.body)
         bl.setContentsMargins(14, 8, 14, 12)
@@ -595,7 +630,7 @@ class ChatPanel(QWidget):
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll.setMinimumSize(10, 10)
-        self.msgs = GlowArea()
+        self.msgs = QWidget()
         self.msgs.setObjectName("msgs")
         self.msg_lay = QVBoxLayout(self.msgs)
         self.msg_lay.setContentsMargins(0, 4, 4, 4)
@@ -709,6 +744,7 @@ class ChatPanel(QWidget):
         self.hurry_bar.hide()
         bl.addWidget(self.hurry_bar)
         bl.addWidget(self.glow)
+        self.body.anchor = self.glow
         self.split.addWidget(self.body)
         self.split.setStretchFactor(0, 34)
         self.split.setStretchFactor(1, 66)
@@ -739,7 +775,8 @@ class ChatPanel(QWidget):
             self.term.apply_colors(pal(), cc)
         self.setStyleSheet(f"""
             QWidget {{ font-family:'Malgun Gothic'; font-size:10.5pt; color:{P['text']}; }}
-            QFrame#body, QWidget#msgs, QScrollArea, QScrollArea > QWidget > QWidget {{ background:{P['bg']}; }}
+            QFrame#body {{ background:{P['bg']}; }}
+            QWidget#msgs, QScrollArea, QScrollArea > QWidget, QScrollArea > QWidget > QWidget {{ background:transparent; }}
             QLabel#title {{ color:{c}; font-weight:700; font-size:12pt; }}
             QFrame#sep {{ background:{P['line']}; }}
             QLabel#status {{ color:{P['dim']}; }}
@@ -1325,13 +1362,12 @@ class ChatPanel(QWidget):
 
     # ---------------- 보내기·말하기 ----------------
     def _empty_glow(self, on: bool):
-        """새 대화(첫 화면)일 때만 바닥의 빛을 켠다."""
-        cols = [self._cc] + [c for c in glow_colors() if QColor(c).lightness() < 235][:2]
-        if getattr(self, "_glow_on", None) == (on, tuple(cols)):
+        """새 대화(첫 화면)일 때만 대화 칸 바닥의 빛을 켠다."""
+        key = (on, self._cc, light())
+        if getattr(self, "_glow_on", None) == key:
             return
-        self._glow_on = (on, tuple(cols))
-        self.msgs.glow, self.msgs.colors = on, cols
-        self.msgs.update()
+        self._glow_on = key
+        self.body.set_glow(on, self._cc, not light())
 
     def _stop(self):
         if self.state in ("thinking", "acting", "speaking", "listening"):
