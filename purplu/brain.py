@@ -38,10 +38,18 @@ SYSTEM = """너는 '퍼플루'야. 사용자의 Windows PC에 사는 귀여운 �
 - 대화 상대로서: 일을 시킬 땐 짧게, 수다·질문엔 친구처럼 2~4문장으로 성의 있게 답해. 맞장구치고, 네 생각·추천도 말하고,
   가끔 되물어서 대화를 이어 가. "모르겠어"로 끝내지 말고 찾아보거나 아는 걸로 최선을 다해 답해.
 - 앱을 열어 달라고 하면 open_app을 써.
-- 웹에서 찾아보거나 사이트에서 무언가를 할 땐 browser_* 도구를 써. 기본은 '퍼플루 브라우저'(대화창 위에 보이는 너만의 탭 하나짜리 브라우저)야.
+- 궁금한 걸 물으면 (가장 중요):
+  1) 네가 아는 거면 도구 없이 바로 대답해. (뜻·설명·방법·역사·추천·공부·코딩 등 대부분)
+  2) 최신이거나 확실하지 않은 사실(뉴스·날씨·가격·주가·일정·요즘 유행)만 search_web 을 한 번 쓰고, 나온 결과로 바로 대답해.
+  3) 질문에 답하려고 브라우저를 열어 구글 검색하고 'AI 개요'를 찾지 마. 그건 느리고 이상해.
+- 브라우저(browser_*)는 사용자가 "열어줘", "~사이트에서 해줘", "눌러줘", "@탭에서 찾아줘"처럼 웹에서 무언가를 '해 달라'고 할 때만 써.
+  browser_read 는 한 페이지에 한 번만. 읽었으면 바로 누르기·입력 같은 다음 행동을 하거나 대답해. 같은 페이지를 또 읽지 마.
+  한 부탁에 도구는 많아야 6~8번. 그 안에 못 끝내면 멈추고, 지금까지 한 것과 막힌 곳을 말해.
+- 도구를 쓴 뒤에는 꼭 말로 대답해. 아무 말 없이 끝내지 마.
+- 웹에서 무언가를 할 땐 browser_* 도구를 써. 기본은 '퍼플루 브라우저'(대화창 위에 보이는 너만의 탭 하나짜리 브라우저)야.
   퍼플루 브라우저는 크롬처럼 탭이 있어. 보통은 지금 탭에서 browser_open으로 옮겨 다니며 이어서 하고 (예: 주가 찾기 = 검색 한 번 → browser_read → 필요하면 다음 주소),
   여러 곳을 나란히 비교할 때만 new_tab=true. 탭은 browser_tabs로 보고 browser_switch_tab·browser_close_tab으로 다뤄. 다 쓴 탭은 닫아.
-  검색은 browser_open에 검색어 그대로(인코딩하지 말고 "오늘 급등주"처럼). 결과는 꼭 browser_read로 읽고 나서 말해.
+  사이트에서 검색할 땐 browser_open에 검색어 그대로(인코딩하지 말고). 결과는 browser_read 한 번으로 읽고 말해.
 - "터미널에서 해줘", PC 명령어 일은 run_command — 실행한 명령과 결과가 대화창 위 '터미널'에 그대로 보여.
   사용자가 "웨일에서", "크롬에서" 라고 하거나 @웨일_… 처럼 내 브라우저의 탭을 고르면 그 브라우저로 해 (browser_open의 where, browser_switch_tab).
   순서: browser_open → browser_read로 페이지와 E 번호 확인 →
@@ -145,9 +153,16 @@ class Brain:
 
     # ---- 외부(UI/단축키/탭 서버)에서 부르는 것들 ----
 
+    def _new_request(self):
+        """새 부탁이 시작됨 → 도구 횟수·읽은 페이지 기록을 비운다 (계속 읽기만 하다 멈추는 것 막기)."""
+        self._tool_count = 0
+        self._reads, self._reads_at = {}, {}
+        self._last_action = 0
+
     def talk_start(self, source="pc"):
         if self._talking:
             return
+        self._new_request()
         self._talking = True
         self._keep_alive = True
         self._source = source
@@ -183,6 +198,7 @@ class Brain:
         text = (text or "").strip() or ("이 그림 봐 줘" if image else "")
         if not text:
             return
+        self._new_request()
         self._turn_user = ((shown or "").strip() or text) + (" [그림 첨부]" if image else "")
         self.emit("state", "listening")
         self.emit("heard", self._turn_user)
@@ -652,6 +668,37 @@ class Brain:
                         self._going_away = False
                         return
 
+    MAX_TOOLS = 10      # 한 부탁에 쓰는 도구
+    MAX_READS = 4       # 한 부탁에 페이지 읽기 (browser_read·screenshot·look_at_screen)
+    READS = {"browser_read", "browser_screenshot", "look_at_screen"}
+    ACTIONS = {"browser_click", "browser_type", "browser_keys", "browser_open", "browser_nav", "browser_scroll",
+               "browser_switch_tab", "click", "type_text", "press_keys", "scroll", "open_app"}
+
+    def _too_much(self, name: str) -> str:
+        if not hasattr(self, "_tool_count"):
+            self._new_request()
+        self._tool_count += 1
+        if self._tool_count > self.MAX_TOOLS:
+            return ("도구를 이번 부탁에 너무 많이 썼어. 이제 도구는 그만 쓰고, 지금까지 알아낸 것과 못 한 것을 "
+                    "사용자에게 바로 말로 대답해.")
+        if name in self.READS:
+            n = sum(self._reads.values())
+            if n >= self.MAX_READS:
+                return "페이지를 이미 여러 번 읽었어. 더 읽지 말고 지금까지 읽은 내용으로 바로 대답해."
+            if self._reads.get(name, 0) and self._last_action < self._reads_at.get(name, 0):
+                return ("방금 읽은 그대로야 (그 뒤로 아무것도 안 눌렀어). 다시 읽지 말고, 위 내용으로 "
+                        "다음 행동(누르기·입력)을 하거나 바로 대답해.")
+        return ""
+
+    def _after_tool(self, name: str, result: dict):
+        if not hasattr(self, "_reads_at"):
+            self._reads_at = {}
+        if name in self.READS:
+            self._reads[name] = self._reads.get(name, 0) + 1
+            self._reads_at[name] = self._tool_count
+        elif name in self.ACTIONS:
+            self._last_action = self._tool_count
+
     async def _handle_tools(self, session, calls):
         self.emit("state", "acting")
         allow = config.settings()["computer_control"]
@@ -671,7 +718,12 @@ class Brain:
             self.emit("step", {"label": label, "call": call, "done": False})
             t0 = time.perf_counter()
             sink = lambda text: self.emit("cmd", text)  # noqa: E731  도구 안에서 실행하는 명령어 한 줄씩
-            result = await asyncio.to_thread(trace.run_with, sink, tools.run, fc.name, args, allow)
+            stop = self._too_much(fc.name)
+            if stop:   # 같은 페이지를 또 읽거나 도구를 너무 많이 쓰면 실행하지 않고 '이제 대답해'
+                result = {"ok": False, "error": stop}
+            else:
+                result = await asyncio.to_thread(trace.run_with, sink, tools.run, fc.name, args, allow)
+                self._after_tool(fc.name, result)
             image = result.pop("_image", None)
             if image:
                 images.append(image)

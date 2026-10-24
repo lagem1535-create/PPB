@@ -115,7 +115,7 @@ BROWSER_DECLARATIONS = [
     _fn("browser_switch_tab", "탭을 바꾼다 (browser_tabs의 tab_id).", {"tab_id": (I, "browser_tabs의 tab_id")}, ["tab_id"]),
     _fn("browser_close_tab", "탭을 닫는다. tab_id가 없으면 지금 탭.", {"tab_id": (I, "닫을 탭")}),
     _fn("browser_read", "브라우저의 지금 탭을 읽는다: 제목, 주소, 본문 글, 누를 수 있는 것·입력칸 목록(E1, E2…). "
-        "브라우저에서 무언가를 하기 전에 먼저 부른다. 화면 OCR보다 훨씬 정확하다.",
+        "페이지마다 한 번만 (누르거나 옮긴 뒤에만 다시). 질문에 답하려고 쓰지 말고 search_web 을 써.",
         {"max_chars": (I, "본문을 몇 글자까지 (기본 6000)")}),
     _fn("browser_click", "브라우저 페이지를 진짜 마우스로 누른다. browser_read의 E 번호가 가장 정확하고, "
         "번호가 없으면 글자(text), 그래도 안 되면 browser_screenshot 사진의 x,y 좌표로.",
