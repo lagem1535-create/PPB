@@ -489,3 +489,41 @@ def thumbnail(opts: dict, w=120, h=96, bg="#FAF8FF") -> QPixmap:
     draw_face(p, w, h, still(), opts)
     p.end()
     return pm
+
+
+def app_icon(size: int = 256, color: str | None = None) -> QPixmap:
+    """앱 아이콘: 둥근 네모 안에서 퍼플루가 아래에서 쏙 올라온 모습 (작업 표시줄·바로가기)."""
+    color = color or config.settings().get("color") or "#8B5CF6"
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    r = size * 0.22
+    tile = QRectF(size * 0.03, size * 0.03, size * 0.94, size * 0.94)
+    clip = QPainterPath()
+    clip.addRoundedRect(tile, r, r)
+    p.setClipPath(clip)
+    g = QLinearGradient(0, 0, 0, size)
+    g.setColorAt(0, QColor("#FFFFFF"))
+    g.setColorAt(1, QColor(color).lighter(185))
+    p.fillRect(tile, g)
+    z = 1.75   # 크게 당겨서 (양옆은 잘려도) 눈이 작은 아이콘에서도 잘 보이게
+    w = tile.width() * z
+    h = w * 390 / 884 / 0.95
+    p.translate(tile.x() - (w - tile.width()) / 2, tile.bottom() - h + size * 0.02)
+    draw_face(p, w, h, still(), options(hat="none", antenna="none", extra="none"), base=color)
+    p.end()
+    return pm
+
+
+def save_icon_file(path, color: str | None = None):
+    """여러 크기가 든 .ico 파일 (바로가기·작업 표시줄용)."""
+    import io
+    from PIL import Image
+    from PySide6.QtCore import QBuffer, QByteArray
+    ba = QByteArray()
+    buf = QBuffer(ba)
+    buf.open(QBuffer.WriteOnly)
+    app_icon(256, color).save(buf, "PNG")
+    img = Image.open(io.BytesIO(bytes(ba)))
+    img.save(str(path), sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])

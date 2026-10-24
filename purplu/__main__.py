@@ -52,9 +52,21 @@ def main():
     _setup_log()
     if moved:
         print("예전 데이터를 data/ 로 옮김:", len(moved), "개")
+    from . import install
+    install.set_app_id()   # 작업 표시줄에서 '파이썬'이 아니라 퍼플루로
     qt = QApplication(sys.argv)
     qt.setQuitOnLastWindowClosed(False)
+    from .setup_wizard import run_if_needed
+    if not run_if_needed():   # 처음 켤 때: 연결 코드 · 키. '나중에' 면 지킴이가 다시 켜지 않게
+        (config.DATA_DIR / "quit.flag").write_text("setup", encoding="utf-8")
+        sys.exit(0)
     config.load()
+    from .face import app_icon
+    from PySide6.QtGui import QIcon
+    icon = QIcon()
+    for n in (16, 24, 32, 48, 64, 128, 256):
+        icon.addPixmap(app_icon(n))
+    qt.setWindowIcon(icon)   # 모든 창·작업 표시줄 아이콘
     app = App(qt, Brain, TabletServer)
     # Firebase 실시간 동기화: 탭·다른 PC에서 바꾼 설정과 대화목록이 바로 반영된다
     def conversations_changed():

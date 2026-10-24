@@ -32,13 +32,23 @@ LEVEL = {"low": "low", "medium": "medium", "high": "high", "max": "high"}   # �
 
 
 def model_info(mid: str):
-    return next((m for m in TEXT_MODELS if m[0] == mid), TEXT_MODELS[0])
+    """(id, 이름, 설명, 생각하는 모델인가). Claude·GPT 도 (키가 있으면 고를 수 있다)."""
+    from .providers import CLAUDE_MODELS, OPENAI_PREFIX
+    for m in TEXT_MODELS:
+        if m[0] == mid:
+            return m
+    for cid, name, desc in CLAUDE_MODELS:
+        if cid == mid:
+            return (cid, name, desc, True)
+    if mid and mid.startswith(OPENAI_PREFIX):
+        return (mid, mid[len(OPENAI_PREFIX):].replace("gpt-", "GPT-"), "OpenAI", True)
+    return TEXT_MODELS[0]
 
 
 def name_of(mid: str) -> str:
     if mid and mid.startswith("gemini-3.8-live"):
         return "Gemini 3.8 Live" + (" 생각" if "thinking" in mid else "")
-    return model_info(mid)[1] if any(m[0] == mid for m in TEXT_MODELS) else (mid or "")
+    return model_info(mid)[1] if mid else ""
 
 
 class TextChat:
@@ -67,6 +77,9 @@ class TextChat:
         b.emit("state", "listening")
         b.emit("heard", b._turn_user)
         b.emit("state", "thinking")
+        from .providers import OPENAI_PREFIX
+        if mid.startswith("claude-") or mid.startswith(OPENAI_PREFIX):   # Claude · GPT
+            return await self._other(mid, effort, text, image, mime, s)
         key = config.get_api_key()
         if not key:
             b.emit("error", "Gemini 키가 없어요. 설정에서 키를 넣어 주세요.")
@@ -140,6 +153,57 @@ class TextChat:
             b._flush_turn()
             b.emit("state", "idle")
             self.task = None
+
+    async def _other(self, mid, effort, text, image, mime, s):
+        """Claude·GPT 로 대답. 실패하면(한도·키 문제 등) 알려 주고, 바쁘면 Gemini 가벼운 모델로 대신."""
+        from . import brain as brain_mod, providers
+        b = self.b
+        rows = await self._rows()
+        system = brain_mod.system_prompt() + "\n- 지금은 글 대화야. 글로 읽기 좋게, 필요하면 줄을 나눠 답해."
+        turn = providers.claude_turn if mid.startswith("claude-") else providers.openai_turn
+        try:
+            await turn(b, mid, effort, rows, text, image, mime, system, s["computer_control"])
+        except asyncio.CancelledError:
+            b._turn_model = (b._turn_model + " (멈춤)").strip()
+        except Exception as e:
+            msg = str(e)
+            if any(k in msg for k in ("429", "529", "overloaded", "rate_limit", "Rate limit")) and not b._turn_model:
+                b.emit("hint", f"{model_info(mid)[1]}가 지금 바쁘거나 한도라서 {model_info(FALLBACK)[1]}로 대답할게요.")
+                b._turn_meta["note"] = f"{model_info(mid)[1]}가 바빠서 대신 대답"
+                b._turn_meta["model"] = FALLBACK
+                await self._gemini_fallback(text, image, mime)
+                return
+            b.emit("error", f"{model_info(mid)[1]} 대답 실패: {msg[:200]}")
+        finally:
+            if b._turn_meta and "t0" in b._turn_meta:
+                b._turn_meta["secs"] = round(time.time() - b._turn_meta.pop("t0", time.time()), 1)
+                b.emit("meta", dict(b._turn_meta))
+                b._cid = config.settings().get("current_conversation") or getattr(b, "_cid", None)
+                b._flush_turn()
+                b.emit("state", "idle")
+                self.task = None
+
+    async def _gemini_fallback(self, text, image, mime):
+        """Claude·GPT 가 바쁠 때 Gemini 가벼운 모델로 한 번 (도구 없이 짧게)."""
+        b = self.b
+        client = genai.Client(api_key=config.get_api_key())
+        contents = await self._history()
+        contents.append(types.Content(role="user", parts=[types.Part(text=text or "이 파일 봐 줘")]))
+        stream = await client.aio.models.generate_content_stream(model=FALLBACK, contents=contents)
+        async for chunk in stream:
+            if chunk.text:
+                b._turn_model += chunk.text
+                b.emit("reply", chunk.text)
+
+    async def _rows(self) -> list:
+        b = self.b
+        if getattr(b, "temporary", False):
+            return list(getattr(b, "_temp_history", []))
+        cid = config.settings().get("current_conversation") or ""
+        try:
+            return await asyncio.to_thread(store.messages, cid) if cid else []
+        except Exception:
+            return []
 
     async def _history(self) -> list:
         b = self.b

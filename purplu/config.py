@@ -229,3 +229,25 @@ def get_api_key() -> str | None:
 
 def set_api_key(key: str) -> None:
     keyring.set_password(APP, "gemini", key.strip())
+
+
+# ---- 다른 회사 키 (글 대화 모델): Claude(Anthropic) · GPT(OpenAI). 이 PC의 Windows 자격 증명에만 ----
+KEY_ENV = {"gemini": "GEMINI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
+
+
+def get_key(provider: str) -> str | None:
+    if provider == "gemini":
+        return get_api_key()
+    return os.environ.get(KEY_ENV.get(provider, "")) or keyring.get_password(APP, provider)
+
+
+def set_key(provider: str, key: str) -> None:
+    if provider == "gemini":
+        return set_api_key(key)
+    if key.strip():
+        keyring.set_password(APP, provider, key.strip())
+    else:
+        try:
+            keyring.delete_password(APP, provider)
+        except Exception:
+            pass

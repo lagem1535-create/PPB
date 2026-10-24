@@ -437,13 +437,29 @@ class ModelPopup(QFrame):
             self.v.addWidget(bar)
             self.v.addSpacing(6)
         elif self.page == "more":
+            from .providers import CLAUDE_MODELS, openai_models
             self._row("〈  더 많은 모델", fn=lambda: self._go("main"))
+            self._label("Gemini")
             for mid, name, desc, _t in TEXT_MODELS[MAIN_MODELS:]:
                 self._row(name, desc if mid != cur else "", fn=lambda _=False, m=mid: self._set(text_model=m), on=mid == cur)
+            self._label("Claude")
+            if config.get_key("anthropic"):
+                for mid, name, desc in CLAUDE_MODELS:
+                    self._row(name, desc if mid != cur else "", fn=lambda _=False, m=mid: self._set(text_model=m), on=mid == cur)
+            else:
+                self._row("Claude 키 넣기", "설정 ›", fn=lambda: (self.close(), self.owner.open_settings("설정")))
+            self._label("GPT")
+            gpts = openai_models() if config.get_key("openai") else []
+            if gpts:
+                for mid, name, desc in gpts:
+                    self._row(name, fn=lambda _=False, m=mid: self._set(text_model=m), on=mid == cur)
+            else:
+                self._row("OpenAI 키 넣기" if not config.get_key("openai") else "GPT 모델을 못 불러왔어요",
+                          "설정 ›", fn=lambda: (self.close(), self.owner.open_settings("설정")))
         else:
             for n, (mid, name, _d, _t) in enumerate(TEXT_MODELS[:MAIN_MODELS], 1):
                 self._row(name, str(n), fn=lambda _=False, m=mid: self._set(text_model=m), on=mid == cur)
-            if cur in [m[0] for m in TEXT_MODELS[MAIN_MODELS:]]:   # 더 많은 모델에서 고른 것도 위에 보이게
+            if cur not in [m[0] for m in TEXT_MODELS[:MAIN_MODELS]]:   # 더 많은 모델(Claude·GPT 포함)에서 고른 것도 위에 보이게
                 self._row(model_info(cur)[1], on=True)
             self._sep()
             if model_info(cur)[3]:   # 생각하는 모델에서만 노력

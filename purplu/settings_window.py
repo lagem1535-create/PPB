@@ -568,7 +568,18 @@ class SettingsWindow(QWidget):
         btn_key.clicked.connect(self._ask_key)
         key_row.addWidget(self.key_label)
         key_row.addWidget(btn_key)
-        row(v, "Gemini 키", "이 PC의 Windows 자격 증명에만 저장돼요", key_row)
+        row(v, "Gemini 키", "말(라이브)과 기본 글 모델. 이 PC의 Windows 자격 증명에만 저장돼요", key_row)
+        self.other_keys = {}
+        for prov, title, desc in (("anthropic", "Claude 키 (선택)", "넣으면 글 대화에서 Claude 모델을 고를 수 있어요 · console.anthropic.com"),
+                                  ("openai", "OpenAI 키 (선택)", "넣으면 글 대화에서 GPT 모델을 고를 수 있어요 · platform.openai.com")):
+            r = QHBoxLayout()
+            lab = QLabel()
+            btn = QPushButton("키 입력/변경")
+            btn.clicked.connect(lambda _=False, p=prov, t=title: self._ask_other_key(p, t))
+            r.addWidget(lab)
+            r.addWidget(btn)
+            self.other_keys[prov] = lab
+            row(v, title, desc, r)
         row(v, "대화 모델", "", combo("live_model", config.CHOICES["live_model"]))
         row(v, "생각 깊이", "생각하는 모델일 때만", combo("thinking_level", config.CHOICES["thinking_level"]))
         row(v, "누르고 말하기 키", "다시 켜야 바뀌어요", combo("talk_key", config.CHOICES["talk_key"]))
@@ -691,6 +702,8 @@ class SettingsWindow(QWidget):
     def _fill_settings_inner(self):
         s = config.settings()
         self.key_label.setText("✓ 저장됨" if config.get_api_key() else "⚠ 아직 없어요")
+        for prov, lab in getattr(self, "other_keys", {}).items():
+            lab.setText("✓ 저장됨" if config.get_key(prov) else "없음")
         for key, cb in self.combos.items():
             if cb.findText(str(s[key])) < 0:
                 cb.addItem(str(s[key]))
@@ -819,6 +832,18 @@ class SettingsWindow(QWidget):
             config.set_api_key(key)
             self.brain.sleep()
             self.key_label.setText("✓ 저장됨")
+
+    def _ask_other_key(self, provider, title):
+        key, ok = QInputDialog.getText(self, title, f"{title.replace(' (선택)', '')}를 붙여 넣으세요 (비우고 확인하면 지워요):",
+                                       QLineEdit.Password)
+        if not ok:
+            return
+        config.set_key(provider, key)
+        if provider == "openai":
+            from . import providers
+            providers.openai_models(refresh=True)   # 쓸 수 있는 GPT 모델 다시 보기
+        self.other_keys[provider].setText("✓ 저장됨" if key.strip() else "없음")
+        self._flash()
 
     # ---- 갤럭시 탭 ----
 

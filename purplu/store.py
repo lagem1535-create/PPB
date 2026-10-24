@@ -20,7 +20,7 @@ def _db_url() -> str:
     try:
         return path.read_text(encoding="utf-8").strip().rstrip("/")
     except OSError:
-        raise SystemExit("data\firebase_url.txt 에 Firebase Realtime Database 주소를 넣어 주세요 (README '처음 설치').")
+        return ""   # 아직 없음 → 처음 켤 때 '퍼플루 시작하기' 창에서 넣는다
 
 
 DB_URL = _db_url()
@@ -28,7 +28,15 @@ ROOT = "purplu"
 _client = httpx.Client(timeout=10)
 
 
+def set_url(url: str):
+    """처음 설정 창에서 주소를 넣으면 바로 쓰게."""
+    global DB_URL
+    DB_URL = url.strip().rstrip("/")
+
+
 def _url(path: str) -> str:
+    if not DB_URL:
+        raise RuntimeError("Firebase 주소가 아직 없어요 (처음 설정에서 연결 코드를 넣어 주세요)")
     return f"{DB_URL}/{ROOT}/{path.strip('/')}.json"
 
 
