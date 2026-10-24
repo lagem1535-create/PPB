@@ -281,7 +281,7 @@ class EffortBar(QWidget):
     def __init__(self, efforts, current):
         super().__init__()
         self.efforts, self.cur = efforts, current
-        self.setFixedHeight(40)
+        self.setFixedHeight(46)
         self.setCursor(Qt.PointingHandCursor)
         self.setMinimumWidth(220)
 
@@ -303,40 +303,54 @@ class EffortBar(QWidget):
         if e.buttons() & Qt.LeftButton:
             self._pick(e.position().x())
 
-    COLORS = ["#22C55E", "#EAB308", "#EF4444", "#A855F7"]   # 낮음 · 중간 · 높음 · 최대
+    SOFT = ["#9BE3B4", "#FBE3A1", "#F8B4B4", "#D9C2F7"]     # 낮음 · 중간 · 높음 · 최대 (파스텔)
+    INK = ["#2F7D4F", "#9A6B12", "#B4413F", "#7C4DBE"]      # 고른 글자 색 (같은 색의 진한 쪽)
+
+    def _anim_to(self, x):
+        """손잡이가 톡 튀지 않고 부드럽게 미끄러지게."""
+        from PySide6.QtCore import QVariantAnimation, QEasingCurve
+        start = getattr(self, "_hx", None)
+        if start is None:
+            self._hx = x
+            return
+        a = QVariantAnimation(self, startValue=float(start), endValue=float(x), duration=220)
+        a.setEasingCurve(QEasingCurve.OutCubic)
+        a.valueChanged.connect(lambda v: (setattr(self, "_hx", float(v)), self.update()))
+        a.start()
+        self._a = a
 
     def paintEvent(self, _):
-        """얇은 줄 + 동그란 손잡이 하나. 고른 곳까지만 초록→노랑→빨강(→보라)으로 차고, 글자는 고른 것만 그 색."""
+        """둥글고 도톰한 줄 + 하얀 손잡이 (그림자만). 색은 파스텔로 은은하게."""
         P = pal()
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         idx = next((i for i, (k, _) in enumerate(self.efforts) if k == self.cur), 1)
-        y = 14
-        x0, x1, xs = self._x(0), self._x(len(self.efforts) - 1), self._x(idx)
+        y, th = 15, 12
+        x0, x1 = self._x(0), self._x(len(self.efforts) - 1)
+        target = self._x(idx)
+        if getattr(self, "_hx", None) is None or getattr(self, "_last", None) != idx:
+            self._last = idx
+            self._anim_to(target)
+        hx = getattr(self, "_hx", target)
         p.setPen(Qt.NoPen)
-        p.setBrush(QColor(P["line"]))
-        p.drawRoundedRect(QRectF(x0, y - 2, x1 - x0, 4), 2, 2)          # 바탕 줄
+        p.setBrush(QColor("#ECEAF3") if light() else QColor(P["line"]))
+        p.drawRoundedRect(QRectF(x0 - th / 2, y - th / 2, x1 - x0 + th, th), th / 2, th / 2)   # 바탕
         g = QLinearGradient(x0, 0, x1, 0)
-        for k, col in enumerate(self.COLORS[:len(self.efforts)]):
+        for k, col in enumerate(self.SOFT[:len(self.efforts)]):
             g.setColorAt(k / (len(self.efforts) - 1), QColor(col))
         p.setBrush(g)
-        p.drawRoundedRect(QRectF(x0, y - 2, max(4, xs - x0), 4), 2, 2)   # 찬 부분
-        for i in range(len(self.efforts)):                               # 눈금: 아주 작은 점
-            if i != idx:
-                p.setBrush(QColor(P["dim"]) if i > idx else QColor(255, 255, 255, 200))
-                p.drawEllipse(QPointF(self._x(i), y), 1.6, 1.6)
-        p.setBrush(QColor(0, 0, 0, 28))                                  # 손잡이 그림자
-        p.drawEllipse(QPointF(xs, y + 1.2), 8.5, 8.5)
+        p.drawRoundedRect(QRectF(x0 - th / 2, y - th / 2, hx - x0 + th, th), th / 2, th / 2)   # 찬 부분
+        for r, a in ((12, 14), (10, 22)):                                                      # 부드러운 그림자
+            p.setBrush(QColor(0, 0, 0, a))
+            p.drawEllipse(QPointF(hx, y + 1.5), r, r)
         p.setBrush(QColor("white"))
-        p.setPen(QPen(QColor(self.COLORS[idx]), 2))
-        p.drawEllipse(QPointF(xs, y), 7.5, 7.5)
+        p.drawEllipse(QPointF(hx, y), 9, 9)
         f = QFont(self.font())
         f.setPointSizeF(8.5)
+        p.setFont(f)
         for i, (k, name) in enumerate(self.efforts):
-            f.setBold(i == idx)
-            p.setFont(f)
-            p.setPen(QColor(self.COLORS[i]) if i == idx else QColor(P["dim"]))
-            p.drawText(QRectF(self._x(i) - 30, y + 12, 60, 18), Qt.AlignCenter, name)
+            p.setPen(QColor(self.INK[i]) if i == idx else QColor(P["dim"]))
+            p.drawText(QRectF(self._x(i) - 30, y + 13, 60, 18), Qt.AlignCenter, name)
         p.end()
 
 
