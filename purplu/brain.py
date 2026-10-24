@@ -164,6 +164,7 @@ class Brain:
         if self._talking:
             return
         self._new_request()
+        self._turn_meta = {"model": config.settings()["live_model"], "via": "말", "t0": time.time()}
         self._talking = True
         self._keep_alive = True
         self._source = source
@@ -183,6 +184,17 @@ class Brain:
             self.loop.call_soon_threadsafe(self._incoming, chunk)
 
     def send_text(self, text: str, image: bytes | None = None, mime: str = "image/jpeg", shown: str | None = None):
+        if (config.settings().get("text_model") or "live") != "live":   # 글 대화는 고른 제미나이 모델로
+            self._keep_alive = True
+            control.stop_event.clear()
+            if not hasattr(self, "textchat"):
+                from .textchat import TextChat
+                self.textchat = TextChat(self)
+            self.textchat.start(text, image, mime, shown)
+            return
+        self._send_text_live(text, image, mime, shown)
+
+    def _send_text_live(self, text: str, image: bytes | None = None, mime: str = "image/jpeg", shown: str | None = None):
         """글 채팅 (탭·웹). 말로 하는 대화와 같은 세션·같은 대화목록에 이어진다.
         shown: 말풍선·대화목록에 보일 글 (내가 친 그대로). text 는 @멘션 설명 등을 붙여 퍼플루에게 보내는 글."""
         self._keep_alive = True
@@ -200,6 +212,7 @@ class Brain:
         if not text:
             return
         self._new_request()
+        self._turn_meta = {"model": config.settings()["live_model"], "via": "글", "t0": time.time()}
         self._turn_user = ((shown or "").strip() or text) + (" [그림 첨부]" if image else "")
         self.emit("state", "listening")
         self.emit("heard", self._turn_user)
@@ -363,6 +376,9 @@ class Brain:
         return config.settings().get("current_conversation") or ""   # 없으면 첫 말을 저장할 때 만든다
 
     async def _history(self, cid: str) -> list[types.Content]:
+        if getattr(self, "temporary", False):
+            return [types.Content(role=r["role"], parts=[types.Part(text=r["text"])])
+                    for r in getattr(self, "_temp_history", []) if r.get("text")]
         try:
             rows = await asyncio.to_thread(store.messages, cid)
         except Exception:
@@ -548,10 +564,16 @@ class Brain:
         """한 번 주고받은 말을 대화목록에 저장."""
         user, model = self._turn_user.strip(), self._turn_model.strip()
         steps = getattr(self, "_turn_steps", [])
+        meta = {k: v for k, v in (getattr(self, "_turn_meta", None) or {}).items() if k != "t0"}
         self._turn_user = self._turn_model = ""
         self._turn_steps = []
+        self._turn_meta = None
         cid = getattr(self, "_cid", None)
         if not (user or model):
+            return
+        if getattr(self, "temporary", False):   # 임시 대화: 이 대화 안에서만 기억하고 저장하지 않는다
+            self._temp_history = getattr(self, "_temp_history", []) + [
+                {"role": "user", "text": user}, {"role": "model", "text": model}]
             return
 
         def save():
@@ -563,7 +585,7 @@ class Brain:
             if user:
                 store.add_message(cid, "user", user)
             if model or steps:
-                store.add_message(cid, "model", model or "(실행만 했어요)", steps)
+                store.add_message(cid, "model", model or "(실행만 했어요)", steps, meta or None)
             convs = {c["id"]: c for c in store.list_conversations()}
             if user and convs.get(cid, {}).get("title") == "새 대화":
                 store.rename_conversation(cid, user[:30])
@@ -662,6 +684,12 @@ class Brain:
                     self._speaker.clear()
                     self.emit("audio_clear", None)
                 if sc.turn_complete:
+                    meta = getattr(self, "_turn_meta", None)
+                    if meta and (self._turn_model or self._turn_user):
+                        meta = dict(meta)
+                        meta["secs"] = round(time.time() - meta.pop("t0", time.time()), 1)
+                        self._turn_meta = meta
+                        self.emit("meta", meta)
                     self._flush_turn()
                     if not self._speaker.playing and not self._talking:
                         self.emit("state", "idle")
@@ -704,6 +732,8 @@ class Brain:
             self._new_request()
         self._stopped = True
         control.stop_event.set()
+        if getattr(self, "textchat", None):
+            self.textchat.cancel()
         self._call(self._stop_turn())
 
     async def _stop_turn(self):
@@ -714,6 +744,13 @@ class Brain:
         await self._disconnect(keep_state=True)
         self.emit("hint", "멈췄어요.")
         self.emit("state", "idle")
+
+    def set_temporary(self, on: bool):
+        """임시 대화: 저장하지 않고, 끄면 다 잊는다. 켜고 끌 때마다 새로 시작."""
+        self.temporary = bool(on)
+        self._temp_history = []
+        self._call(self._disconnect(keep_state=True))   # 다음 말부터 기록 없이(또는 원래 대화로) 새로 연결
+        self.emit("temporary", self.temporary)
 
     def hurry(self):
         """너무 길 때: 도구는 그만 쓰고 지금까지 알아낸 걸로 바로 대답하게."""
@@ -741,6 +778,14 @@ class Brain:
             self._in_tools = False
 
     async def _handle_tools_inner(self, session, calls):
+        responses, images = await self.run_tool_calls(calls)
+        for image in images:  # 스크린샷은 영상 프레임으로 같이 보낸다
+            await session.send_realtime_input(video=types.Blob(data=image, mime_type="image/jpeg"))
+        await session.send_tool_response(function_responses=responses)
+        self.emit("state", "thinking")
+
+    async def run_tool_calls(self, calls):
+        """도구들을 실행하고 (응답들, 스크린샷들) 을 돌려준다. 라이브와 글 모델(textchat)이 같이 쓴다."""
         self.emit("state", "acting")
         allow = config.settings()["computer_control"]
         responses, images = [], []
@@ -780,7 +825,4 @@ class Brain:
                 self.emit("files", result["files"])
             responses.append(types.FunctionResponse(id=fc.id, name=fc.name,
                                                     response=json.loads(json.dumps(result, default=str))))
-        for image in images:  # 스크린샷은 영상 프레임으로 같이 보낸다
-            await session.send_realtime_input(video=types.Blob(data=image, mime_type="image/jpeg"))
-        await session.send_tool_response(function_responses=responses)
-        self.emit("state", "thinking")
+        return responses, images

@@ -39,7 +39,8 @@ COMMANDS = [
     ("web", "위쪽을 퍼플루 ↔ 퍼플루 브라우저로"),
     ("term", "위쪽을 퍼플루 ↔ 터미널로"),
     ("hide", "위 칸(퍼플루·브라우저·터미널) 숨기기 / 보이기"),
-    ("model", "빠른 모델 ↔ 생각하는 모델"),
+    ("model", "모델 · 노력 정도 고르기"),
+    ("temp", "임시 대화 (저장 안 됨) 시작 / 끝내기"),
     ("mini", "작게: 퍼플루만 보기 (꾹 눌러 말하기) / 크게"),
     ("pin", "오른쪽에 고정 / 풀기"),
     ("top", "언제나 맨 위로 켜기/끄기"),
@@ -204,8 +205,9 @@ class GlowBody(QFrame):
         self._t0 = time.monotonic()
         self._timer = QTimer(self, timeout=self.update)
 
-    def set_glow(self, on: bool, color: str, dark: bool):
+    def set_glow(self, on: bool, color: str, dark: bool, mono: bool = False, strength: float = 1.0):
         self.glow, self.base, self.dark = on, QColor(color), dark
+        self.mono, self.level = mono, strength
         if on and self.isVisible():
             self._timer.start(50)
         else:
@@ -221,6 +223,9 @@ class GlowBody(QFrame):
         self._timer.stop()
         super().hideEvent(e)
 
+    def _turn_(self, c, dh, ds=1.0, dv=1.0):
+        return QColor(c) if getattr(self, "mono", False) else self._turn(c, dh, ds, dv)
+
     @staticmethod
     def _turn(c: QColor, dh: int, ds: float = 1.0, dv: float = 1.0) -> QColor:
         h, sat, v, _ = c.getHsv()
@@ -235,18 +240,21 @@ class GlowBody(QFrame):
         W, H = self.width(), self.height()
         t = time.monotonic() - self._t0
         b = self.base
-        strength = 1.0 if self.dark else 0.8
+        strength = (1.0 if self.dark else 0.8) * getattr(self, "level", 1.0)
+        if getattr(self, "mono", False):   # 임시 대화: 색 없이 부드러운 검은빛 (어두운 테마면 은은한 회색빛)
+            b = QColor("#A1A1AA") if self.dark else QColor("#27272A")
+            strength *= 0.42
         breathe = 0.92 + 0.08 * math.sin(t * 0.9)
         # (가로 위치, 색, 가로 반지름, 세로 반지름, 진하기) — 가운데 넓은 빛 + 양옆 어울리는 색 둘
         # (가로, 위로 올린 정도 px, 색, 가로 반지름, 세로 반지름, 진하기)
         # 아래(입력칸 근처)는 내 색 → 위로 갈수록 색상이 조금씩 돌아간 색으로 바뀐다
         blobs = [
             (0.50 + 0.03 * math.sin(t * 0.35), 0, b, 0.85, 300, 150),
-            (0.18 + 0.05 * math.sin(t * 0.27 + 1.3), 0, self._turn(b, -38, 1.0, 1.05), 0.55, 260, 115),
-            (0.82 + 0.05 * math.sin(t * 0.31 + 2.1), 0, self._turn(b, 42, 0.9, 1.08), 0.55, 260, 115),
-            (0.45 + 0.06 * math.sin(t * 0.25 + 0.4), 170, self._turn(b, 55, 0.95, 1.1), 0.75, 280, 105),   # 중간: 색이 바뀌기 시작
-            (0.55 + 0.06 * math.sin(t * 0.2 + 2.0), 330, self._turn(b, 110, 0.8, 1.15), 0.70, 260, 75),   # 위: 더 바뀐 색, 옅게
-            (0.50 + 0.08 * math.sin(t * 0.22 + 0.6), 0, self._turn(b, 0, 0.45, 1.25), 1.05, 160, 80),   # 밝은 띠
+            (0.18 + 0.05 * math.sin(t * 0.27 + 1.3), 0, self._turn_(b, -38, 1.0, 1.05), 0.55, 260, 115),
+            (0.82 + 0.05 * math.sin(t * 0.31 + 2.1), 0, self._turn_(b, 42, 0.9, 1.08), 0.55, 260, 115),
+            (0.45 + 0.06 * math.sin(t * 0.25 + 0.4), 170, self._turn_(b, 55, 0.95, 1.1), 0.75, 280, 105),   # 중간: 색이 바뀌기 시작
+            (0.55 + 0.06 * math.sin(t * 0.2 + 2.0), 330, self._turn_(b, 110, 0.8, 1.15), 0.70, 260, 75),   # 위: 더 바뀐 색, 옅게
+            (0.50 + 0.08 * math.sin(t * 0.22 + 0.6), 0, self._turn_(b, 0, 0.45, 1.25), 1.05, 160, 80),   # 밝은 띠
         ]
         a_ = self.anchor
         cy = (a_.geometry().top() + a_.height() * 0.5) if a_ is not None and a_.isVisible() else H
@@ -263,6 +271,146 @@ class GlowBody(QFrame):
             p.drawEllipse(QPointF(0, 0), 1, 1)
             p.restore()
         p.end()
+
+
+# ------------------------------------------------------------------ 노력 정도 막대
+class EffortBar(QWidget):
+    """낮음 · 중간 · 높음 · 최대. 고른 곳까지 초록 → 노랑 → 빨강으로 차오르고, 최대는 보라색까지."""
+    changed = Signal(str)
+
+    def __init__(self, efforts, current):
+        super().__init__()
+        self.efforts, self.cur = efforts, current
+        self.setFixedHeight(54)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMinimumWidth(220)
+
+    def _x(self, i):
+        pad = 22
+        return pad + (self.width() - pad * 2) * i / (len(self.efforts) - 1)
+
+    def _pick(self, x):
+        i = min(range(len(self.efforts)), key=lambda k: abs(self._x(k) - x))
+        if self.efforts[i][0] != self.cur:
+            self.cur = self.efforts[i][0]
+            self.changed.emit(self.cur)
+            self.update()
+
+    def mousePressEvent(self, e):
+        self._pick(e.position().x())
+
+    def mouseMoveEvent(self, e):
+        if e.buttons() & Qt.LeftButton:
+            self._pick(e.position().x())
+
+    def paintEvent(self, _):
+        P = pal()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        idx = next((i for i, (k, _) in enumerate(self.efforts) if k == self.cur), 1)
+        y = 16
+        x0, x1 = self._x(0), self._x(len(self.efforts) - 1)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(P["line"]))
+        p.drawRoundedRect(QRectF(x0 - 6, y - 5, x1 - x0 + 12, 10), 5, 5)
+        g = QLinearGradient(x0, 0, x1, 0)
+        for stop, col in ((0, "#22C55E"), (0.34, "#EAB308"), (0.67, "#EF4444"), (1.0, "#A855F7")):
+            g.setColorAt(stop, QColor(col))
+        p.setBrush(g)
+        p.drawRoundedRect(QRectF(x0 - 6, y - 5, self._x(idx) - x0 + 12, 10), 5, 5)
+        for i, (k, name) in enumerate(self.efforts):
+            x = self._x(i)
+            on = i <= idx
+            p.setBrush(QColor("white") if on else QColor(P["line"]))
+            p.setPen(QPen(QColor(P["dim"]) if not on else QColor(0, 0, 0, 0), 1))
+            p.drawEllipse(QPointF(x, y), 4 if i != idx else 7, 4 if i != idx else 7)
+            if i == idx:   # 고른 곳은 큰 동그라미 + 테두리 색
+                p.setPen(QPen(g, 3))
+                p.setBrush(QColor("white"))
+                p.drawEllipse(QPointF(x, y), 8, 8)
+            f = QFont(self.font())
+            f.setPointSizeF(9)
+            f.setBold(i == idx)
+            p.setFont(f)
+            p.setPen(QColor(P["text"] if i == idx else P["dim"]))
+            if k == "max":
+                p.setPen(QColor("#A855F7"))
+            p.drawText(QRectF(x - 30, y + 12, 60, 20), Qt.AlignCenter, name)
+        p.end()
+
+
+class ModelPopup(QFrame):
+    """모델 이름 단추를 누르면 뜨는 창: 글 대화 모델 · 노력 정도 · 말(라이브) 모델."""
+
+    def __init__(self, owner):
+        super().__init__(owner, Qt.Popup)
+        self.owner = owner
+        self.setObjectName("modelpop")
+        self.v = QVBoxLayout(self)
+        self.v.setContentsMargins(10, 10, 10, 10)
+        self.v.setSpacing(2)
+        self.build()
+
+    def _head(self, text):
+        lab = QLabel(text)
+        lab.setStyleSheet(f"color:{pal()['dim']}; font-size:9pt; font-weight:700; padding:6px 8px 2px; background:transparent;")
+        self.v.addWidget(lab)
+
+    def _row(self, name, desc, on, fn, badge=""):
+        P = pal()
+        b = QPushButton()
+        b.setCursor(Qt.PointingHandCursor)
+        h = QHBoxLayout(b)
+        h.setContentsMargins(10, 6, 10, 6)
+        col = QVBoxLayout()
+        col.setSpacing(0)
+        n = QLabel(name + (f"  <span style='font-size:8pt;color:{P['dim']};background:{P['card']}'>&nbsp;{badge}&nbsp;</span>" if badge else ""))
+        n.setTextFormat(Qt.RichText)
+        n.setStyleSheet(f"font-weight:700; color:{P['text']}; background:transparent;")
+        d = QLabel(desc)
+        d.setStyleSheet(f"color:{P['dim']}; font-size:8.5pt; background:transparent;")
+        col.addWidget(n)
+        col.addWidget(d)
+        h.addLayout(col, 1)
+        ck = QLabel("✓" if on else "")
+        ck.setStyleSheet(f"color:{self.owner._cc}; font-size:12pt; font-weight:800; background:transparent;")
+        h.addWidget(ck)
+        b.setMinimumHeight(50)
+        b.setStyleSheet(f"QPushButton {{ background:{P['card'] if on else 'transparent'}; border:none; border-radius:10px; text-align:left; }}"
+                        f"QPushButton:hover {{ background:{P['bubble']}; }}")
+        b.clicked.connect(fn)
+        self.v.addWidget(b)
+
+    def build(self):
+        from .textchat import EFFORTS, TEXT_MODELS
+        while self.v.count():
+            it = self.v.takeAt(0)
+            if it.widget():
+                it.widget().deleteLater()
+        P = pal()
+        self.setStyleSheet(f"QFrame#modelpop {{ background:{P['bg']}; border:1px solid {P['line']}; border-radius:14px; }}")
+        s = config.settings()
+        cur = s.get("text_model") or "gemini-3.8-flash"
+        self._head("글 대화 모델")
+        for mid, name, desc, _think in TEXT_MODELS:
+            self._row(name, desc, mid == cur, lambda _=False, m=mid: self._set(text_model=m),
+                      "추천" if mid == "gemini-3.8-flash" else "")
+        if next((m for m in TEXT_MODELS if m[0] == cur), TEXT_MODELS[0])[3]:   # 생각하는 모델에서만
+            self._head("노력 정도  (높을수록 깊게 생각하지만 느리고 한도를 더 써요)")
+            bar = EffortBar(EFFORTS, s.get("effort") or "medium")
+            bar.changed.connect(lambda e: self._set(effort=e, rebuild=False))
+            self.v.addWidget(bar)
+        self._head("말 (라이브) 모델")
+        for mid, name in MODELS.items():
+            self._row(name.replace("⚡ ", "").replace("🧠 ", ""), "꾹 눌러 말할 때 · 목소리로 대답",
+                      mid == s.get("live_model"), lambda _=False, m=mid: self._set(live_model=m))
+        self.adjustSize()
+
+    def _set(self, rebuild=True, **kw):
+        config.save_settings(**kw)
+        self.owner._paint_model_btn()
+        if rebuild:
+            self.build()
 
 
 # ------------------------------------------------------------------ [빨리 대답 Ctrl F] 같은 단추
@@ -427,7 +575,7 @@ class GlowBox(QFrame):
         p.setRenderHint(QPainter.Antialiasing)
         r = QRectF(self.rect()).adjusted(1.5, 1.5, -1.5, -1.5)
         g = QConicalGradient(r.center(), self.angle)
-        cols = glow_colors()
+        cols = ["#52525B", "#D4D4D8", "#18181B"] if getattr(self, "mono", False) else glow_colors()
         for i, c in enumerate(cols + [cols[0]]):
             g.setColorAt(i / len(cols), QColor(c))
         p.setPen(QPen(g, 3))
@@ -694,13 +842,14 @@ class ChatPanel(QWidget):
         self.input.textChanged.connect(self._text_changed)
         gl.addWidget(self.input)
         tools = QHBoxLayout()
-        b_img = QPushButton("📎")
-        b_img.setToolTip("그림 첨부")
-        b_img.clicked.connect(self._attach)
-        self.model = QComboBox()
-        for k, t in MODELS.items():
-            self.model.addItem(t, k)
-        self.model.activated.connect(lambda _=None: config.save_settings(live_model=self.model.currentData()))
+        b_img = QPushButton("+")
+        b_img.setToolTip("그림 첨부 · 임시 대화")
+        b_img.clicked.connect(lambda: self._plus_menu(b_img))
+        self.model = QPushButton()
+        self.model.setObjectName("modelbtn")
+        self.model.setCursor(Qt.PointingHandCursor)
+        self.model.setToolTip("글 대화 모델 · 노력 정도 · 말 모델")
+        self.model.clicked.connect(self._model_popup)
         self.b_mic = QPushButton("🎤")
         self.b_mic.setToolTip("꾹 누르고 말하기")
         self.b_mic.pressed.connect(self._talk_start)
@@ -795,6 +944,9 @@ class ChatPanel(QWidget):
             QPushButton#send {{ background:{cc}; color:{on_color(cc)}; border:none; border-radius:18px; font-size:13pt; }}
             QPlainTextEdit#input {{ background:transparent; border:none; font-size:11pt; }}
             QComboBox {{ background:{cc}; color:{on_color(cc)}; border:none; border-radius:12px; padding:4px 10px; }}
+            QPushButton#modelbtn {{ background:transparent; color:{P['text']}; border:1px solid {P['line']}; border-radius:14px; padding:5px 12px; font-weight:600; }}
+            QPushButton#modelbtn:hover {{ background:{P['card']}; border-color:{cc}; }}
+            QPushButton#icon {{ font-size:16pt; font-weight:300; }}
             QComboBox QAbstractItemView {{ background:{P['bg']}; color:{P['text']}; selection-background-color:{P['bubble']}; }}
             QComboBox::drop-down {{ border:none; width:18px; }}
             QListWidget#sugg {{ background:{P['bg']}; border:1px solid {P['line']}; border-radius:10px; }}
@@ -807,9 +959,7 @@ class ChatPanel(QWidget):
             QSplitter::handle:vertical:hover {{ background:{cc}; border-top:1px solid {cc}; }}
         """)
         self._apply_top()
-        idx = self.model.findData(s.get("live_model"))
-        if idx >= 0:
-            self.model.setCurrentIndex(idx)
+        self._paint_model_btn()
         self.btn_pin.active = bool(s.get("pc_chat_pinned"))
         self.btn_pin.update()
         self._render()
@@ -881,6 +1031,10 @@ class ChatPanel(QWidget):
             t["results"].append("<br>".join(f"📄 {html.escape(f['path'].split(chr(92))[-1])}" for f in data[:8]) or "찾은 파일이 없어요")
         elif kind == "error":
             t["results"].append(f"<span style='color:#EF4444'>⚠ {html.escape(str(data))}</span>")
+        elif kind == "meta":   # 대답한 모델 · 글/말 · 걸린 시간 (대답 아래에)
+            t["meta"] = data
+        elif kind == "temporary":
+            return self._temp_changed(bool(data))
         elif kind == "hint":
             t["results"].append(f"🙉 {html.escape(str(data))}")
         elif kind == "conversation":   # 다른 대화로 바뀜
@@ -924,14 +1078,23 @@ class ChatPanel(QWidget):
         lab.setStyleSheet(f"font-size:{size};")
         return lab
 
-    def _reply_text(self, text: str):
-        """퍼플루의 대답: 글 아래에 복사 · 답글. 글을 드래그하면 고른 부분에만 답글."""
+    @staticmethod
+    def _md(text: str) -> str:
+        """**굵게** · `코드` 정도만 예쁘게 (나머지는 그대로)."""
+        import re
+        t = html.escape(text, quote=False)
+        t = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", t)
+        t = re.sub(r"`([^`]+)`", r"<code>\1</code>", t)
+        return t.replace("\n", "<br>")
+
+    def _reply_text(self, text: str, meta: dict | None = None):
+        """퍼플루의 대답: 글 아래에 복사 · 답글 ……… 모델 · 글/말 ⋯. 글을 드래그하면 고른 부분에만 답글."""
         P = pal()
         w = QWidget()
         v = QVBoxLayout(w)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(2)
-        lab = self._text(html.escape(text, quote=False).replace("\n", "<br>"))
+        lab = self._text(self._md(text))
         lab.installEventFilter(self)
         lab.setProperty("reply", True)
         v.addWidget(lab)
@@ -953,8 +1116,38 @@ class ChatPanel(QWidget):
             QTimer.singleShot(1200, lambda: cp.setText("⧉ 복사") if cp.parent() else None)
         cp.clicked.connect(copy)
         rp.clicked.connect(lambda: self._reply(lab.selectedText() or text))
+        if meta:
+            from .textchat import name_of
+            via = {"글": "⌨ 입력", "말": "🎤 말"}.get(meta.get("via"), "")
+            info = QLabel(f"{name_of(meta.get('model', ''))}" + (f" · {via}" if via else ""))
+            info.setStyleSheet(f"color:{P['dim']}; font-size:8.5pt; background:transparent;")
+            row.addWidget(info)
+            more = QPushButton("⋯")
+            more.setToolTip("자세히 (모델 · 글/말 · 노력 · 걸린 시간)")
+            more.setCursor(Qt.PointingHandCursor)
+            more.setStyleSheet(style.replace("font-size:9pt", "font-size:13pt; font-weight:700"))
+            more.clicked.connect(lambda: self._meta_menu(more, meta, text))
+            row.addWidget(more)
         v.addLayout(row)
         return w
+
+    def _meta_menu(self, btn, meta, text):
+        from .textchat import EFFORTS, name_of
+        m = QMenu(self)
+        rows = [f"모델: {name_of(meta.get('model', ''))}",
+                "입력: " + {"글": "글로 입력했어요", "말": "말로 했어요"}.get(meta.get("via"), "-")]
+        if meta.get("effort"):
+            rows.append("노력 정도: " + dict(EFFORTS).get(meta["effort"], meta["effort"]))
+        if meta.get("secs") is not None:
+            rows.append(f"걸린 시간: {meta['secs']}초")
+        if meta.get("note"):
+            rows.append(meta["note"])
+        for r in rows:
+            m.addAction(r).setEnabled(False)
+        m.addSeparator()
+        m.addAction("⧉ 대답 복사", lambda: QGuiApplication.clipboard().setText(text))
+        m.addAction("⚙ 모델 바꾸기", self._model_popup)
+        m.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
 
     def _reply(self, quote: str):
         quote = " ".join((quote or "").split())
@@ -1062,7 +1255,7 @@ class ChatPanel(QWidget):
                 add(self._steps([{**st, "done": True, "label": st.get("label") or st.get("call")} for st in m.get("steps") or []],
                                 key=f"h{m.get('t', '')}"))
                 if m.get("text") and m["text"] != "(실행만 했어요)":
-                    add(self._reply_text(m["text"]))
+                    add(self._reply_text(m["text"], m.get("meta")))
         for i, t in enumerate(([] if self.mini else self.past[-10:]) + [self.turn]):
             live = t is self.turn
             if t["heard"]:
@@ -1074,7 +1267,7 @@ class ChatPanel(QWidget):
                 if live and self.state != "idle":   # 아직 말하는 중이면 글만
                     add(self._text(html.escape(t["reply"], quote=False).replace("\n", "<br>")))
                 else:
-                    add(self._reply_text(t["reply"]))
+                    add(self._reply_text(t["reply"], t.get("meta")))
             for r in t["results"]:
                 lab = self._text(r, "10pt")
                 lab.setStyleSheet(f"background:{P['card']}; border:1px solid {P['line']}; border-radius:12px; padding:8px 10px;")
@@ -1082,7 +1275,11 @@ class ChatPanel(QWidget):
         empty = self.msg_lay.count() == 1 and not self.mini
         self._empty_glow(empty)
         if empty:
-            add(self._text(f"<div align='center' style='font-size:15pt; font-weight:600'><br>무엇을 도와드릴까요?</div>"))
+            if getattr(self, "temp", False):
+                add(self._text(f"<div align='center' style='font-size:15pt; font-weight:600'><br>임시 대화</div>"
+                               f"<div align='center' style='color:{P['dim']}; font-size:9.5pt'>저장되지 않아요. 끝내면 다 잊어요.</div>"))
+            else:
+                add(self._text(f"<div align='center' style='font-size:15pt; font-weight:600'><br>무엇을 도와드릴까요?</div>"))
             for ex in EXAMPLES:   # 누르면 바로 보내기
                 b = QPushButton(ex)
                 b.setCursor(Qt.PointingHandCursor)
@@ -1366,12 +1563,55 @@ class ChatPanel(QWidget):
 
     # ---------------- 보내기·말하기 ----------------
     def _empty_glow(self, on: bool):
-        """새 대화(첫 화면)일 때만 대화 칸 바닥의 빛을 켠다."""
-        key = (on, self._cc, light())
+        """새 대화(첫 화면)일 때만 대화 칸 바닥의 빛을 켠다. 임시 대화면 부드러운 검은 빛 (대화 중에도 옅게)."""
+        temp = bool(getattr(self, "temp", False))
+        key = (on, self._cc, light(), temp)
         if getattr(self, "_glow_on", None) == key:
             return
         self._glow_on = key
-        self.body.set_glow(on, self._cc, not light())
+        self.glow.mono = temp
+        self.glow.update()
+        if temp:
+            self.body.set_glow(True, "#3F3F46" if light() else "#000000", not light(), mono=True, strength=1.0 if on else 0.45)
+        else:
+            self.body.set_glow(on, self._cc, not light())
+
+    def _plus_menu(self, btn):
+        m = QMenu(self)
+        m.addAction("🖼  그림 첨부", self._attach)
+        m.addSeparator()
+        temp = bool(getattr(self.brain, "temporary", False))
+        m.addAction("⊘  임시 대화 끝내기" if temp else "◌  임시 대화 (저장 안 됨)", self._toggle_temp)
+        m.exec(btn.mapToGlobal(btn.rect().topLeft()) - QPoint(0, m.sizeHint().height()))
+
+    def _toggle_temp(self):
+        self.brain.set_temporary(not bool(getattr(self.brain, "temporary", False)))
+
+    def _temp_changed(self, on: bool):
+        """임시 대화: 화면을 비우고 '임시 대화' 로, 끝내면 원래 대화로 돌아간다."""
+        self.temp = on
+        self.history, self.past, self.turn = [], [], self._new_turn()
+        if on:
+            self._show_title("임시 대화")
+            self._render()
+        else:
+            self.load_history()
+        self._glow_on = None
+        self._render()
+
+    def _model_popup(self):
+        pop = ModelPopup(self)
+        pop.adjustSize()
+        g = self.model.mapToGlobal(QPoint(0, 0))
+        pop.move(g.x(), g.y() - pop.height() - 6)
+        pop.show()
+
+    def _paint_model_btn(self):
+        from .textchat import EFFORTS, model_info
+        s = config.settings()
+        mid, name, _d, think = model_info(s.get("text_model") or "gemini-3.8-flash")
+        eff = dict(EFFORTS).get(s.get("effort") or "medium", "")
+        self.model.setText(f"{name}" + (f"  ·  {eff}" if think else "") + "  ▾")
 
     def _stop(self):
         if self.state in ("thinking", "acting", "speaking", "listening"):
@@ -1572,10 +1812,9 @@ class ChatPanel(QWidget):
         elif name == "chats":
             self._conv_menu()
         elif name == "model":
-            other = next(k for k in MODELS if k != s.get("live_model"))
-            config.save_settings(live_model=other)
-            self.turn["results"].append(f"모델을 {MODELS[other]}(으)로 바꿨어요")
-            self._schedule()
+            self._model_popup()
+        elif name == "temp":
+            self._toggle_temp()
         elif name == "mini":
             self._toggle_mini()
         elif name == "web":
