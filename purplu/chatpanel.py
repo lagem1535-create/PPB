@@ -190,6 +190,81 @@ class _SuggestDelegate(QStyledItemDelegate):
         p.restore()
 
 
+# ------------------------------------------------------------------ 메시지 칸 (첫 화면 빛)
+class GlowArea(QWidget):
+    """새 대화 첫 화면: 바닥 가운데에서 옆으로 넓게 퍼지는 빛 (제미나이 첫 화면처럼). 위로 올라오는 띠가 아니라 납작한 타원."""
+
+    def __init__(self):
+        super().__init__()
+        self.glow = False
+        self.colors = []
+        self.setAttribute(Qt.WA_StyledBackground, True)
+
+    def paintEvent(self, e):
+        super().paintEvent(e)
+        if not self.glow or not self.colors:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        W, H = self.width(), self.height()
+        # 가운데 내 색 + 양옆에 빛 색 둘 → 옆으로 퍼지며 섞인다
+        spots = [(0.5, self.colors[0], 0.62, 0.30, 95)]
+        if len(self.colors) > 1:
+            spots += [(0.18, self.colors[1], 0.42, 0.22, 60), (0.82, self.colors[-1], 0.42, 0.22, 60)]
+        for fx, col, rx, ry, alpha in spots:
+            c = QColor(col)
+            p.save()
+            p.translate(W * fx, H + H * 0.04)
+            p.scale(W * rx, H * ry)      # 원을 납작하게 → 옆으로 넓은 빛
+            g = QRadialGradient(0, 0, 1)
+            for stop, a in ((0, alpha), (0.45, alpha * 0.45), (0.75, alpha * 0.12), (1, 0)):
+                g.setColorAt(stop, QColor(c.red(), c.green(), c.blue(), int(a)))
+            p.setPen(Qt.NoPen)
+            p.setBrush(g)
+            p.drawEllipse(QPointF(0, 0), 1, 1)
+            p.restore()
+        p.end()
+
+
+# ------------------------------------------------------------------ [빨리 대답 Ctrl F] 같은 단추
+class KeyButton(QFrame):
+    """글자 옆에 단축키를 작은 키 모양으로 보여 주는 단추. primary = 진한 바탕."""
+    clicked = Signal()
+
+    def __init__(self, text, keys, primary=True):
+        super().__init__()
+        self.primary = primary
+        self.setCursor(Qt.PointingHandCursor)
+        self.setObjectName("keybtn")
+        h = QHBoxLayout(self)
+        h.setContentsMargins(14, 6, 8 if keys else 14, 6)
+        h.setSpacing(5)
+        self.lbl = QLabel(text)
+        h.addWidget(self.lbl)
+        self.keys = []
+        for k in keys:
+            kl = QLabel(k)
+            kl.setAlignment(Qt.AlignCenter)
+            self.keys.append(kl)
+            h.addWidget(kl)
+
+    def paint_colors(self, P):
+        dark = light()
+        bg, fg = (("#18181B", "#FFFFFF") if dark else ("#F5F3FF", "#120B22")) if self.primary else ("transparent", P["text"])
+        border = "none" if self.primary else f"1px solid {P['line']}"
+        self.setStyleSheet(f"QFrame#keybtn {{ background:{bg}; border:{border}; border-radius:10px; }}"
+                           f"QFrame#keybtn:hover {{ background:{'#3F3F46' if self.primary and dark else P['bubble']}; }}")
+        self.lbl.setStyleSheet(f"color:{fg}; font-weight:700; font-size:10pt; background:transparent;")
+        key_bg = "#3F3F46" if dark else "#2E1F4F"
+        for kl in self.keys:
+            kl.setStyleSheet(f"color:{fg}; background:{key_bg if self.primary else 'transparent'}; border:1px solid {'#52525B' if dark else '#4C3A75'};"
+                             f" border-radius:5px; padding:0 5px; font-size:8.5pt; font-weight:600;")
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.LeftButton and self.rect().contains(e.position().toPoint()):
+            self.clicked.emit()
+
+
 # ------------------------------------------------------------------ 머리줄 선 아이콘
 class IconButton(QPushButton):
     """⚙·＋·작게·고정·닫기를 같은 굵기의 선으로 그린다 (이모티콘마다 색·크기가 달라 지저분하던 것)."""
@@ -520,7 +595,7 @@ class ChatPanel(QWidget):
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll.setMinimumSize(10, 10)
-        self.msgs = QWidget()
+        self.msgs = GlowArea()
         self.msgs.setObjectName("msgs")
         self.msg_lay = QVBoxLayout(self.msgs)
         self.msg_lay.setContentsMargins(0, 4, 4, 4)
@@ -602,11 +677,6 @@ class ChatPanel(QWidget):
         tools.addWidget(b_img)
         tools.addWidget(self.model)
         tools.addStretch(1)
-        self.b_hurry = QPushButton("⚡ 빨리 대답")
-        self.b_hurry.setToolTip("너무 오래 걸릴 때: 지금까지 알아낸 걸로 바로 대답 (Ctrl+F)")
-        self.b_hurry.setCursor(Qt.PointingHandCursor)
-        self.b_hurry.clicked.connect(self._hurry)
-        self.b_hurry.hide()
         self.b_stop = QPushButton("■")
         self.b_stop.setObjectName("stop")
         self.b_stop.setToolTip("멈추기 (Ctrl+S)")
@@ -614,17 +684,30 @@ class ChatPanel(QWidget):
         self.b_stop.setCursor(Qt.PointingHandCursor)
         self.b_stop.clicked.connect(self._stop)
         self.b_stop.hide()
-        tools.addWidget(self.b_hurry)
-        tools.addSpacing(4)
         tools.addWidget(self.b_stop)
         tools.addSpacing(4)
         tools.addWidget(self.b_send)
-        self._hurry_timer = QTimer(self, singleShot=True, interval=7000,
-                                   timeout=lambda: self.b_hurry.setVisible(self.state in ("thinking", "acting")))
+        self._hurry_timer = QTimer(self, singleShot=True, interval=7000, timeout=self._offer_hurry)
         from PySide6.QtGui import QKeySequence, QShortcut
         QShortcut(QKeySequence("Ctrl+S"), self, self._stop, context=Qt.WindowShortcut)
         QShortcut(QKeySequence("Ctrl+F"), self, self._hurry, context=Qt.WindowShortcut)
         gl.addLayout(tools)
+        # 오래 걸릴 때: "오래 걸리고 있어요"  [빨리 대답 Ctrl F]  [기다리기]
+        self.hurry_bar = QFrame()
+        hb = QHBoxLayout(self.hurry_bar)
+        hb.setContentsMargins(4, 2, 4, 6)
+        hb.setSpacing(8)
+        self.hurry_lbl = QLabel("오래 걸리고 있어요")
+        hb.addWidget(self.hurry_lbl)
+        hb.addStretch(1)
+        self.b_hurry = KeyButton("빨리 대답", ["Ctrl", "F"], primary=True)
+        self.b_hurry.clicked.connect(self._hurry)
+        self.b_wait = KeyButton("기다리기", [], primary=False)
+        self.b_wait.clicked.connect(self._wait)
+        hb.addWidget(self.b_hurry)
+        hb.addWidget(self.b_wait)
+        self.hurry_bar.hide()
+        bl.addWidget(self.hurry_bar)
         bl.addWidget(self.glow)
         self.split.addWidget(self.body)
         self.split.setStretchFactor(0, 34)
@@ -646,8 +729,10 @@ class ChatPanel(QWidget):
         cc = s.get("chat_color") or c
         self._cc = cc
         if hasattr(self, "b_hurry"):
-            self.b_hurry.setStyleSheet(f"QPushButton {{ background:transparent; color:{cc}; border:1.5px solid {cc}; border-radius:16px;"
-                                       f" padding:5px 12px; font-weight:700; }} QPushButton:hover {{ background:{cc}; color:{on_color(cc)}; }}")
+            self.b_hurry.paint_colors(P)
+            self.b_wait.paint_colors(P)
+            self.hurry_lbl.setStyleSheet(f"color:{P['dim']}; font-size:9.5pt; background:transparent;")
+            self.hurry_bar.setStyleSheet("QFrame { background:transparent; }")
         if getattr(self, "switch", None) is not None:
             self.switch.setStyleSheet(f"QFrame#switch {{ background:{P['face_bg']}; }}")
         if getattr(self, "term", None) is not None:
@@ -720,11 +805,12 @@ class ChatPanel(QWidget):
         working = s in ("thinking", "acting", "speaking")
         self.b_stop.setVisible(working)   # 일하는 동안만 ■
         if s in ("thinking", "acting"):
-            if not self._hurry_timer.isActive() and not self.b_hurry.isVisible():
-                self._hurry_timer.start()   # 7초 넘게 걸리면 '빨리 대답' 이 나온다
+            if not self._hurry_timer.isActive() and not self.hurry_bar.isVisible() and not getattr(self, "_waiting", False):
+                self._hurry_timer.start()   # 7초 넘게 걸리면 '빨리 대답 / 기다리기' 가 나온다
         elif s != "speaking":
             self._hurry_timer.stop()
-            self.b_hurry.hide()
+            self.hurry_bar.hide()
+            self._waiting = False
         self._schedule()
 
     def on_event(self, kind: str, data):
@@ -1239,30 +1325,33 @@ class ChatPanel(QWidget):
 
     # ---------------- 보내기·말하기 ----------------
     def _empty_glow(self, on: bool):
-        """새 대화(첫 화면)일 때: 제미나이 첫 화면처럼 아래에서 올라오는 내 색 그라데이션."""
-        if getattr(self, "_glow_on", None) == (on, self._cc):
+        """새 대화(첫 화면)일 때만 바닥의 빛을 켠다."""
+        cols = [self._cc] + [c for c in glow_colors() if QColor(c).lightness() < 235][:2]
+        if getattr(self, "_glow_on", None) == (on, tuple(cols)):
             return
-        self._glow_on = (on, self._cc)
-        if not on:
-            self.msgs.setStyleSheet("")
-            return
-        c = QColor(self._cc)
-        r, g, b = c.red(), c.green(), c.blue()
-        self.msgs.setAttribute(Qt.WA_StyledBackground, True)
-        self.msgs.setStyleSheet(
-            f"QWidget#msgs {{ background: qlineargradient(x1:0, y1:1, x2:0, y2:0, stop:0 rgba({r},{g},{b},110),"
-            f" stop:0.35 rgba({r},{g},{b},45), stop:0.7 rgba({r},{g},{b},0)); }}")
+        self._glow_on = (on, tuple(cols))
+        self.msgs.glow, self.msgs.colors = on, cols
+        self.msgs.update()
 
     def _stop(self):
         if self.state in ("thinking", "acting", "speaking", "listening"):
             self.brain.stop_turn()
-            self.b_hurry.hide()
+            self.hurry_bar.hide()
 
     def _hurry(self):
         if self.state in ("thinking", "acting"):
             self.brain.hurry()
-            self.b_hurry.setText("⚡ 대답하는 중…")
-            QTimer.singleShot(4000, lambda: self.b_hurry.setText("⚡ 빨리 대답"))
+            self.hurry_bar.hide()
+            self._waiting = True   # 이번 부탁에는 다시 묻지 않는다
+
+    def _offer_hurry(self):
+        if self.state in ("thinking", "acting") and not getattr(self, "_waiting", False):
+            self.hurry_bar.show()
+
+    def _wait(self):
+        """기다리기: 이번 부탁은 끝까지 기다린다 (다시 묻지 않음)."""
+        self.hurry_bar.hide()
+        self._waiting = True
 
     def _talk_start(self):
         self.brain.talk_start("pc")
