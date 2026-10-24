@@ -387,8 +387,7 @@ class ModelPopup(QFrame):
         self.v.addWidget(line)
 
     def _label(self, text, small=False):
-        lab = QLabel(text)
-        lab.setWordWrap(True)
+        lab = QLabel(text)   # 짧은 한 줄 (줄바꿈 칸은 창 높이를 엉뚱하게 늘려서 안 씀)
         lab.setStyleSheet(f"color:{pal()['dim']}; font-size:{'8.5pt' if small else '9pt'}; padding:6px 12px 4px; background:transparent;")
         self.v.addWidget(lab)
 
@@ -422,7 +421,7 @@ class ModelPopup(QFrame):
         return b
 
     def build(self):
-        from .textchat import EFFORT_NOTE, EFFORTS, MAIN_MODELS, TEXT_MODELS, model_info
+        from .textchat import EFFORTS, MAIN_MODELS, TEXT_MODELS, model_info
         self._clear()
         P = pal()
         self.setStyleSheet(f"QFrame#modelpop {{ background:{P['bg']}; border:1px solid {P['line']}; border-radius:14px; }}")
@@ -433,19 +432,9 @@ class ModelPopup(QFrame):
             self._label("높을수록 깊게 생각하지만 더 느려요.", small=True)
             eff = s.get("effort") or "medium"
             bar = EffortBar(EFFORTS, eff)
-            note = QLabel()
-            note.setAlignment(Qt.AlignCenter)
-
-            def show_note(e):
-                from .textchat import EFFORT_WARN
-                n = EFFORT_NOTE.get(e, "")
-                warn = e in EFFORT_WARN
-                note.setText(n)
-                note.setStyleSheet(f"color:{'#B45309' if warn else P['dim']}; font-size:8.5pt; padding:6px 0 8px; background:transparent;")
-            bar.changed.connect(lambda e: (config.save_settings(effort=e), self.owner._paint_model_btn(), show_note(e)))
-            show_note(eff)
+            bar.changed.connect(lambda e, bar=bar, before=eff: self._pick_effort(e, bar, before))
             self.v.addWidget(bar)
-            self.v.addWidget(note)
+            self.v.addSpacing(6)
         elif self.page == "more":
             self._row("〈  더 많은 모델", fn=lambda: self._go("main"))
             for mid, name, desc, _t in TEXT_MODELS[MAIN_MODELS:]:
@@ -465,8 +454,39 @@ class ModelPopup(QFrame):
                 for mid, name in MODELS.items():
                     self._row(name.replace("⚡ ", "").replace("🧠 ", ""), fn=lambda _=False, m=mid: self._set(live_model=m),
                               on=mid == s.get("live_model"))
-        self.adjustSize()
+        self.setMinimumHeight(0)
+        self.setMaximumHeight(16777215)
+        self._fit()
+        QTimer.singleShot(0, self._fit)   # 새 줄들이 자리 잡은 뒤 한 번 더
+
+    def _fit(self):
+        """창 높이를 내용에 딱 맞게 (예전 장의 높이가 남아 빈 칸이 생기던 것)."""
+        self.v.activate()
+        h = self.v.totalSizeHint().height() if hasattr(self.v, "totalSizeHint") else self.v.sizeHint().height()
+        self.setFixedHeight(max(60, h))
         self._place()
+
+    def _pick_effort(self, e, bar, before):
+        """최대로 올리면 경고 → '동의' 를 눌러야 바뀐다. 아니면 원래대로."""
+        if e == "max" and before != "max":
+            from PySide6.QtWidgets import QMessageBox
+            self.hide()   # 경고창이 이 작은 창 뒤에 숨지 않게
+            box = QMessageBox(self.owner)
+            box.setWindowTitle("노력 정도: 최대")
+            box.setText("최대는 한도를 많이 써요.")
+            box.setInformativeText("더 깊게 생각하지만 느리고, 하루에 쓸 수 있는 양을 훨씬 빨리 써요.\n그래도 최대로 할까요?")
+            ok = box.addButton("동의", QMessageBox.AcceptRole)
+            box.addButton("취소", QMessageBox.RejectRole)
+            box.exec()
+            if box.clickedButton() is not ok:   # 취소: 막대를 원래 자리로
+                self.show()
+                self.build()
+                return
+        config.save_settings(effort=e)
+        self.owner._paint_model_btn()
+        if self.isHidden():
+            self.show()
+        self.build()
 
     def _place(self):
         btn = self.owner.model

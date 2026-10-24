@@ -24,7 +24,7 @@ TEXT_MODELS = [
     ("gemini-4-argon", "Gemini 4 Argon", "가장 새 모델 (실험)", True),
 ]
 MAIN_MODELS = 4   # 처음 보이는 개수 (1~4 키로 고르기), 나머지는 '더 많은 모델'
-EFFORT_NOTE = {"medium": "추천", "max": "한도를 더 많이 써요"}
+EFFORT_NOTE = {"max": "최대는 한도를 많이 써요."}
 EFFORT_WARN = {"max"}   # 주황 글씨로 보일 것
 EFFORTS = [("low", "낮음"), ("medium", "중간"), ("high", "높음"), ("max", "최대")]
 FALLBACK = "gemini-3.5-flash-lite"   # 고른 모델이 바쁘거나(503·504) 한도(429)일 때 대신
