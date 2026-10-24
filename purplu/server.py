@@ -553,6 +553,10 @@ class TabletServer:
         t = m.get("type")
         if t == "talk_start":
             self.brain.talk_start("pc" if m.get("pc") else "tablet")   # PC 대화창 = PC 마이크·스피커
+        elif t == "stop":
+            self.brain.stop_turn()
+        elif t == "hurry":
+            self.brain.hurry()
         elif t == "talk_end":
             self.brain.talk_end(quiet=bool(m.get("short")))
         elif t == "get_settings":

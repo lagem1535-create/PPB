@@ -44,7 +44,6 @@ SYSTEM = """너는 '퍼플루'야. 사용자의 Windows PC에 사는 귀여운 �
   3) 질문에 답하려고 브라우저를 열어 구글 검색하고 'AI 개요'를 찾지 마. 그건 느리고 이상해.
 - 브라우저(browser_*)는 사용자가 "열어줘", "~사이트에서 해줘", "눌러줘", "@탭에서 찾아줘"처럼 웹에서 무언가를 '해 달라'고 할 때만 써.
   browser_read 는 한 페이지에 한 번만. 읽었으면 바로 누르기·입력 같은 다음 행동을 하거나 대답해. 같은 페이지를 또 읽지 마.
-  한 부탁에 도구는 많아야 6~8번. 그 안에 못 끝내면 멈추고, 지금까지 한 것과 막힌 곳을 말해.
 - 도구를 쓴 뒤에는 꼭 말로 대답해. 아무 말 없이 끝내지 마.
 - 웹에서 무언가를 할 땐 browser_* 도구를 써. 기본은 '퍼플루 브라우저'(대화창 위에 보이는 너만의 탭 하나짜리 브라우저)야.
   퍼플루 브라우저는 크롬처럼 탭이 있어. 보통은 지금 탭에서 browser_open으로 옮겨 다니며 이어서 하고 (예: 주가 찾기 = 검색 한 번 → browser_read → 필요하면 다음 주소),
@@ -158,6 +157,8 @@ class Brain:
         self._tool_count = 0
         self._reads, self._reads_at = {}, {}
         self._last_action = 0
+        self._hurry = False     # '빨리 대답' 눌림
+        self._stopped = False   # '정지' 눌림
 
     def talk_start(self, source="pc"):
         if self._talking:
@@ -668,8 +669,6 @@ class Brain:
                         self._going_away = False
                         return
 
-    MAX_TOOLS = 10      # 한 부탁에 쓰는 도구
-    MAX_READS = 4       # 한 부탁에 페이지 읽기 (browser_read·screenshot·look_at_screen)
     READS = {"browser_read", "browser_screenshot", "look_at_screen"}
     ACTIONS = {"browser_click", "browser_type", "browser_keys", "browser_open", "browser_nav", "browser_scroll",
                "browser_switch_tab", "click", "type_text", "press_keys", "scroll", "open_app"}
@@ -678,13 +677,12 @@ class Brain:
         if not hasattr(self, "_tool_count"):
             self._new_request()
         self._tool_count += 1
-        if self._tool_count > self.MAX_TOOLS:
-            return ("도구를 이번 부탁에 너무 많이 썼어. 이제 도구는 그만 쓰고, 지금까지 알아낸 것과 못 한 것을 "
-                    "사용자에게 바로 말로 대답해.")
-        if name in self.READS:
-            n = sum(self._reads.values())
-            if n >= self.MAX_READS:
-                return "페이지를 이미 여러 번 읽었어. 더 읽지 말고 지금까지 읽은 내용으로 바로 대답해."
+        if self._stopped:
+            return "사용자가 정지를 눌렀어. 아무것도 하지 마."
+        if self._hurry:
+            return ("사용자가 '빨리 대답'을 눌렀어. 도구는 그만 쓰고, 지금까지 알아낸 걸로 바로 짧게 대답해. "
+                    "못 한 게 있으면 그것도 한 줄로.")
+        if name in self.READS:   # 아무것도 안 누르고 같은 걸 또 읽는 것만 막는다 (몇십 번 읽기 방지)
             if self._reads.get(name, 0) and self._last_action < self._reads_at.get(name, 0):
                 return ("방금 읽은 그대로야 (그 뒤로 아무것도 안 눌렀어). 다시 읽지 말고, 위 내용으로 "
                         "다음 행동(누르기·입력)을 하거나 바로 대답해.")
@@ -699,7 +697,50 @@ class Brain:
         elif name in self.ACTIONS:
             self._last_action = self._tool_count
 
+    # ---- 정지 · 빨리 대답 (대화창 ■ · ⚡, Ctrl+S · Ctrl+F) ----
+    def stop_turn(self):
+        """지금 하던 대답·도구를 멈춘다. 대화 연결은 조용히 새로 (그래야 바로 멈춘다)."""
+        if not hasattr(self, "_tool_count"):
+            self._new_request()
+        self._stopped = True
+        control.stop_event.set()
+        self._call(self._stop_turn())
+
+    async def _stop_turn(self):
+        if self._speaker:
+            self._speaker.clear()
+        self.emit("audio_clear", None)
+        self._turn_model = (self._turn_model + " (멈춤)").strip()
+        await self._disconnect(keep_state=True)
+        self.emit("hint", "멈췄어요.")
+        self.emit("state", "idle")
+
+    def hurry(self):
+        """너무 길 때: 도구는 그만 쓰고 지금까지 알아낸 걸로 바로 대답하게."""
+        if not hasattr(self, "_tool_count"):
+            self._new_request()
+        self._hurry = True
+        if not getattr(self, "_in_tools", False):
+            self._call(self._hurry_now())
+
+    async def _hurry_now(self):
+        if not self._session:
+            return
+        try:
+            await self._session.send_client_content(turns=[types.Content(role="user", parts=[types.Part(
+                text="(사용자가 '빨리 대답'을 눌렀어. 도구는 그만 쓰고 지금까지 알아낸 걸로 바로 짧게 대답해.)")])],
+                turn_complete=True)
+        except Exception as e:
+            print("빨리 대답 보내기 실패:", e)
+
     async def _handle_tools(self, session, calls):
+        self._in_tools = True
+        try:
+            await self._handle_tools_inner(session, calls)
+        finally:
+            self._in_tools = False
+
+    async def _handle_tools_inner(self, session, calls):
         self.emit("state", "acting")
         allow = config.settings()["computer_control"]
         responses, images = [], []

@@ -28,7 +28,7 @@ GLOWS = {
     "sunset": ["#F97316", "#EF4444", "#EC4899", "#FACC15"],
     "ocean": ["#06B6D4", "#3B82F6", "#10B981"],
 }
-EXAMPLES = ["오늘 날씨 어때?", "요즘 유행하는 거 알려줘", "계산기 열어서 3 곱하기 9 해줘"]   # 새 대화 예시 3개
+EXAMPLES = ["30분 뒤에 스트레칭하라고 알려줘", "다운로드 폴더에서 어제 받은 파일 찾아줘", "지금 컴퓨터 배터리랑 메모리 어때?"]   # 새 대화 예시 3개
 # '/' 를 치면 뜨는 명령 (이름, 설명). 한글로 쳐도 설명에서 찾아진다
 COMMANDS = [
     ("settings", "설정 열기"),
@@ -602,7 +602,28 @@ class ChatPanel(QWidget):
         tools.addWidget(b_img)
         tools.addWidget(self.model)
         tools.addStretch(1)
+        self.b_hurry = QPushButton("⚡ 빨리 대답")
+        self.b_hurry.setToolTip("너무 오래 걸릴 때: 지금까지 알아낸 걸로 바로 대답 (Ctrl+F)")
+        self.b_hurry.setCursor(Qt.PointingHandCursor)
+        self.b_hurry.clicked.connect(self._hurry)
+        self.b_hurry.hide()
+        self.b_stop = QPushButton("■")
+        self.b_stop.setObjectName("stop")
+        self.b_stop.setToolTip("멈추기 (Ctrl+S)")
+        self.b_stop.setFixedSize(36, 36)
+        self.b_stop.setCursor(Qt.PointingHandCursor)
+        self.b_stop.clicked.connect(self._stop)
+        self.b_stop.hide()
+        tools.addWidget(self.b_hurry)
+        tools.addSpacing(4)
+        tools.addWidget(self.b_stop)
+        tools.addSpacing(4)
         tools.addWidget(self.b_send)
+        self._hurry_timer = QTimer(self, singleShot=True, interval=7000,
+                                   timeout=lambda: self.b_hurry.setVisible(self.state in ("thinking", "acting")))
+        from PySide6.QtGui import QKeySequence, QShortcut
+        QShortcut(QKeySequence("Ctrl+S"), self, self._stop, context=Qt.WindowShortcut)
+        QShortcut(QKeySequence("Ctrl+F"), self, self._hurry, context=Qt.WindowShortcut)
         gl.addLayout(tools)
         bl.addWidget(self.glow)
         self.split.addWidget(self.body)
@@ -624,6 +645,9 @@ class ChatPanel(QWidget):
         c = s.get("color") or "#8B5CF6"
         cc = s.get("chat_color") or c
         self._cc = cc
+        if hasattr(self, "b_hurry"):
+            self.b_hurry.setStyleSheet(f"QPushButton {{ background:transparent; color:{cc}; border:1.5px solid {cc}; border-radius:16px;"
+                                       f" padding:5px 12px; font-weight:700; }} QPushButton:hover {{ background:{cc}; color:{on_color(cc)}; }}")
         if getattr(self, "switch", None) is not None:
             self.switch.setStyleSheet(f"QFrame#switch {{ background:{P['face_bg']}; }}")
         if getattr(self, "term", None) is not None:
@@ -651,6 +675,8 @@ class ChatPanel(QWidget):
             QListWidget#sugg::item:selected {{ background:{P['bubble']}; color:{P['text']}; }}
             QScrollBar:vertical {{ width:6px; background:transparent; }}
             QScrollBar::handle:vertical {{ background:{P['line']}; border-radius:3px; }}
+            QPushButton#stop {{ background:{P['card']}; color:{P['text']}; border:1px solid {P['line']}; border-radius:18px; font-size:12pt; }}
+            QPushButton#stop:hover {{ background:{P['bubble']}; }}
             QSplitter::handle:vertical {{ background:{P['bg']}; image:none; border-top:1px solid {P['line']}; }}
             QSplitter::handle:vertical:hover {{ background:{cc}; border-top:1px solid {cc}; }}
         """)
@@ -691,6 +717,14 @@ class ChatPanel(QWidget):
         self.status.setVisible(active)          # 대화하는 동안엔 '듣는 중…' 같은 상태, 평소엔 대화 제목만
         self.conv.setVisible(not active)
         self.glow.fast = s in ("listening", "thinking", "acting")
+        working = s in ("thinking", "acting", "speaking")
+        self.b_stop.setVisible(working)   # 일하는 동안만 ■
+        if s in ("thinking", "acting"):
+            if not self._hurry_timer.isActive() and not self.b_hurry.isVisible():
+                self._hurry_timer.start()   # 7초 넘게 걸리면 '빨리 대답' 이 나온다
+        elif s != "speaking":
+            self._hurry_timer.stop()
+            self.b_hurry.hide()
         self._schedule()
 
     def on_event(self, kind: str, data):
@@ -918,7 +952,9 @@ class ChatPanel(QWidget):
                 lab = self._text(r, "10pt")
                 lab.setStyleSheet(f"background:{P['card']}; border:1px solid {P['line']}; border-radius:12px; padding:8px 10px;")
                 add(lab)
-        if self.msg_lay.count() == 1 and not self.mini:
+        empty = self.msg_lay.count() == 1 and not self.mini
+        self._empty_glow(empty)
+        if empty:
             add(self._text(f"<div align='center' style='font-size:15pt; font-weight:600'><br>무엇을 도와드릴까요?</div>"))
             for ex in EXAMPLES:   # 누르면 바로 보내기
                 b = QPushButton(ex)
@@ -1202,6 +1238,32 @@ class ChatPanel(QWidget):
         self._render()
 
     # ---------------- 보내기·말하기 ----------------
+    def _empty_glow(self, on: bool):
+        """새 대화(첫 화면)일 때: 제미나이 첫 화면처럼 아래에서 올라오는 내 색 그라데이션."""
+        if getattr(self, "_glow_on", None) == (on, self._cc):
+            return
+        self._glow_on = (on, self._cc)
+        if not on:
+            self.msgs.setStyleSheet("")
+            return
+        c = QColor(self._cc)
+        r, g, b = c.red(), c.green(), c.blue()
+        self.msgs.setAttribute(Qt.WA_StyledBackground, True)
+        self.msgs.setStyleSheet(
+            f"QWidget#msgs {{ background: qlineargradient(x1:0, y1:1, x2:0, y2:0, stop:0 rgba({r},{g},{b},110),"
+            f" stop:0.35 rgba({r},{g},{b},45), stop:0.7 rgba({r},{g},{b},0)); }}")
+
+    def _stop(self):
+        if self.state in ("thinking", "acting", "speaking", "listening"):
+            self.brain.stop_turn()
+            self.b_hurry.hide()
+
+    def _hurry(self):
+        if self.state in ("thinking", "acting"):
+            self.brain.hurry()
+            self.b_hurry.setText("⚡ 대답하는 중…")
+            QTimer.singleShot(4000, lambda: self.b_hurry.setText("⚡ 빨리 대답"))
+
     def _talk_start(self):
         self.brain.talk_start("pc")
 
