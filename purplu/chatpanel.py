@@ -138,9 +138,10 @@ class FaceView(QWidget):
             self.released.emit()
 
     def paintEvent(self, _):
-        from .face import draw_face   # 눈·모자·더듬이·소품까지 (꾸미기: /custom)
+        from .face import draw_face, options   # 눈·모자·더듬이·소품까지 (꾸미기: /custom)
         p = QPainter(self)
-        draw_face(p, self.width(), self.height(), self, bg=pal()["face_bg"])
+        opts = options(extra="sunglasses") if getattr(self, "temp", False) else None   # 임시 대화: 선글라스
+        draw_face(p, self.width(), self.height(), self, opts, bg=pal()["face_bg"])
         p.end()
 
 
@@ -1382,7 +1383,7 @@ class ChatPanel(QWidget):
         if empty:
             if getattr(self, "temp", False):
                 add(self._text(f"<div align='center' style='font-size:15pt; font-weight:600'><br>임시 대화</div>"
-                               f"<div align='center' style='color:{P['dim']}; font-size:9.5pt'>저장되지 않아요. 끝내면 다 잊어요.</div>"))
+                               f"<div align='center' style='color:{P['dim']}; font-size:9.5pt'>아무도 훔쳐보지 않아요. 끝내면 다 잊어버려요.</div>"))
             else:
                 add(self._text(f"<div align='center' style='font-size:15pt; font-weight:600'><br>무엇을 도와드릴까요?</div>"))
             for ex in EXAMPLES:   # 누르면 바로 보내기
@@ -1689,6 +1690,8 @@ class ChatPanel(QWidget):
         self.temp = on
         self.btn_temp.active = on
         self.btn_temp.update()
+        self.face.temp = on   # 임시 대화 동안 퍼플루가 선글라스를 쓴다
+        self.face.update()
         self.history, self.past, self.turn = [], [], self._new_turn()
         if on:
             self._show_title("임시 대화")
