@@ -405,7 +405,7 @@ class ModelPopup(QFrame):
         h.addWidget(name)
         if badge:
             bd = QLabel(badge)
-            warn = badge.startswith("⚠")
+            warn = False
             bd.setStyleSheet(f"background:{'#FDE68A' if warn else P['card']}; color:{'#92400E' if warn else P['dim']};"
                              f" border-radius:6px; padding:1px 6px; font-size:8.5pt;")
             h.addWidget(bd)
@@ -429,16 +429,17 @@ class ModelPopup(QFrame):
         s = config.settings()
         cur = s.get("text_model") or "gemini-3.8-flash"
         if self.page == "effort":
-            self._row("‹  노력", fn=lambda: self._go("main"))
-            self._label("높은 노력은 더 깊게 생각하지만, 더 오래 걸리고 한도를 더 빨리 써요.", small=True)
+            self._row("〈  노력", fn=lambda: self._go("main"))
+            self._label("높을수록 깊게 생각하지만 더 느려요.", small=True)
             eff = s.get("effort") or "medium"
             bar = EffortBar(EFFORTS, eff)
             note = QLabel()
             note.setAlignment(Qt.AlignCenter)
 
             def show_note(e):
+                from .textchat import EFFORT_WARN
                 n = EFFORT_NOTE.get(e, "")
-                warn = n.startswith("⚠")
+                warn = e in EFFORT_WARN
                 note.setText(n)
                 note.setStyleSheet(f"color:{'#B45309' if warn else P['dim']}; font-size:8.5pt; padding:6px 0 8px; background:transparent;")
             bar.changed.connect(lambda e: (config.save_settings(effort=e), self.owner._paint_model_btn(), show_note(e)))
@@ -446,7 +447,7 @@ class ModelPopup(QFrame):
             self.v.addWidget(bar)
             self.v.addWidget(note)
         elif self.page == "more":
-            self._row("‹  더 많은 모델", fn=lambda: self._go("main"))
+            self._row("〈  더 많은 모델", fn=lambda: self._go("main"))
             for mid, name, desc, _t in TEXT_MODELS[MAIN_MODELS:]:
                 self._row(name, desc if mid != cur else "", fn=lambda _=False, m=mid: self._set(text_model=m), on=mid == cur)
         else:
