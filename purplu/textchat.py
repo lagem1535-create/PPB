@@ -15,13 +15,16 @@ from . import config, store
 
 # (모델 id, 보이는 이름, 한 줄 설명, 생각하는 모델인가)
 TEXT_MODELS = [
-    ("live", "Gemini 3.8 Live", "말과 같은 라이브 대화 (목소리로도 대답)", False),
     ("gemini-3.8-flash", "Gemini 3.8 Flash", "빠르고 똑똑해요", True),
-    ("gemini-3.5-flash", "Gemini 3.5 Flash", "빠르고 안정적이에요", True),
-    ("gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite", "가장 빠르고 가벼워요", True),
     ("gemini-3.1-pro-preview", "Gemini 3.1 Pro", "어려운 문제·긴 글을 깊이 생각해요", True),
+    ("gemini-3.5-flash", "Gemini 3.5 Flash", "빠르고 안정적이에요", True),
+    ("live", "Gemini 3.8 Live", "말과 같은 라이브 대화", False),
+    # ↓ '더 많은 모델'
+    ("gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite", "가장 빠르고 가벼워요", True),
     ("gemini-4-argon", "Gemini 4 Argon", "가장 새 모델 (실험)", True),
 ]
+MAIN_MODELS = 4   # 처음 보이는 개수 (1~4 키로 고르기), 나머지는 '더 많은 모델'
+EFFORT_NOTE = {"medium": "추천", "max": "⚠ 한도를 더 써요"}
 EFFORTS = [("low", "낮음"), ("medium", "중간"), ("high", "높음"), ("max", "최대")]
 FALLBACK = "gemini-3.5-flash-lite"   # 고른 모델이 바쁘거나(503·504) 한도(429)일 때 대신
 LEVEL = {"low": "low", "medium": "medium", "high": "high", "max": "high"}   # 최대 = 높음 + 더 길게 생각하고 더 길게 대답
@@ -58,7 +61,7 @@ class TextChat:
         thinking = model_info(mid)[3]
         b._flush_turn()
         b._new_request()
-        b._turn_user = ((shown or "").strip() or text) + (" [그림 첨부]" if image else "")
+        b._turn_user = ((shown or "").strip() or text) + (" [그림 첨부]" if image and (mime or "").startswith("image/") else "")
         b._turn_meta = {"model": mid, "via": "글", "effort": effort if thinking else "", "t0": time.time()}
         b.emit("state", "listening")
         b.emit("heard", b._turn_user)
@@ -72,8 +75,9 @@ class TextChat:
         contents = await self._history()
         parts = [types.Part(text=text or "이 그림 봐 줘")]
         if image:
-            from .tools import images
-            images.last_attached.update(bytes=image, mime=mime)
+            if (mime or "").startswith("image/"):   # 그림이면 '이 그림 고쳐 줘'(generate_image)에도 쓰이게
+                from .tools import images
+                images.last_attached.update(bytes=image, mime=mime)
             parts.insert(0, types.Part(inline_data=types.Blob(data=image, mime_type=mime)))
         contents.append(types.Content(role="user", parts=parts))
         from . import brain as brain_mod, tools

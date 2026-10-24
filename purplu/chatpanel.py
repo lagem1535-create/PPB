@@ -281,12 +281,12 @@ class EffortBar(QWidget):
     def __init__(self, efforts, current):
         super().__init__()
         self.efforts, self.cur = efforts, current
-        self.setFixedHeight(54)
+        self.setFixedHeight(40)
         self.setCursor(Qt.PointingHandCursor)
         self.setMinimumWidth(220)
 
     def _x(self, i):
-        pad = 22
+        pad = 26
         return pad + (self.width() - pad * 2) * i / (len(self.efforts) - 1)
 
     def _pick(self, x):
@@ -303,114 +303,180 @@ class EffortBar(QWidget):
         if e.buttons() & Qt.LeftButton:
             self._pick(e.position().x())
 
+    COLORS = ["#22C55E", "#EAB308", "#EF4444", "#A855F7"]   # 낮음 · 중간 · 높음 · 최대
+
     def paintEvent(self, _):
+        """얇은 줄 + 동그란 손잡이 하나. 고른 곳까지만 초록→노랑→빨강(→보라)으로 차고, 글자는 고른 것만 그 색."""
         P = pal()
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         idx = next((i for i, (k, _) in enumerate(self.efforts) if k == self.cur), 1)
-        y = 16
-        x0, x1 = self._x(0), self._x(len(self.efforts) - 1)
+        y = 14
+        x0, x1, xs = self._x(0), self._x(len(self.efforts) - 1), self._x(idx)
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(P["line"]))
-        p.drawRoundedRect(QRectF(x0 - 6, y - 5, x1 - x0 + 12, 10), 5, 5)
+        p.drawRoundedRect(QRectF(x0, y - 2, x1 - x0, 4), 2, 2)          # 바탕 줄
         g = QLinearGradient(x0, 0, x1, 0)
-        for stop, col in ((0, "#22C55E"), (0.34, "#EAB308"), (0.67, "#EF4444"), (1.0, "#A855F7")):
-            g.setColorAt(stop, QColor(col))
+        for k, col in enumerate(self.COLORS[:len(self.efforts)]):
+            g.setColorAt(k / (len(self.efforts) - 1), QColor(col))
         p.setBrush(g)
-        p.drawRoundedRect(QRectF(x0 - 6, y - 5, self._x(idx) - x0 + 12, 10), 5, 5)
+        p.drawRoundedRect(QRectF(x0, y - 2, max(4, xs - x0), 4), 2, 2)   # 찬 부분
+        for i in range(len(self.efforts)):                               # 눈금: 아주 작은 점
+            if i != idx:
+                p.setBrush(QColor(P["dim"]) if i > idx else QColor(255, 255, 255, 200))
+                p.drawEllipse(QPointF(self._x(i), y), 1.6, 1.6)
+        p.setBrush(QColor(0, 0, 0, 28))                                  # 손잡이 그림자
+        p.drawEllipse(QPointF(xs, y + 1.2), 8.5, 8.5)
+        p.setBrush(QColor("white"))
+        p.setPen(QPen(QColor(self.COLORS[idx]), 2))
+        p.drawEllipse(QPointF(xs, y), 7.5, 7.5)
+        f = QFont(self.font())
+        f.setPointSizeF(8.5)
         for i, (k, name) in enumerate(self.efforts):
-            x = self._x(i)
-            on = i <= idx
-            p.setBrush(QColor("white") if on else QColor(P["line"]))
-            p.setPen(QPen(QColor(P["dim"]) if not on else QColor(0, 0, 0, 0), 1))
-            p.drawEllipse(QPointF(x, y), 4 if i != idx else 7, 4 if i != idx else 7)
-            if i == idx:   # 고른 곳은 큰 동그라미 + 테두리 색
-                p.setPen(QPen(g, 3))
-                p.setBrush(QColor("white"))
-                p.drawEllipse(QPointF(x, y), 8, 8)
-            f = QFont(self.font())
-            f.setPointSizeF(9)
             f.setBold(i == idx)
             p.setFont(f)
-            p.setPen(QColor(P["text"] if i == idx else P["dim"]))
-            if k == "max":
-                p.setPen(QColor("#A855F7"))
-            p.drawText(QRectF(x - 30, y + 12, 60, 20), Qt.AlignCenter, name)
+            p.setPen(QColor(self.COLORS[i]) if i == idx else QColor(P["dim"]))
+            p.drawText(QRectF(self._x(i) - 30, y + 12, 60, 18), Qt.AlignCenter, name)
         p.end()
 
 
 class ModelPopup(QFrame):
-    """모델 이름 단추를 누르면 뜨는 창: 글 대화 모델 · 노력 정도 · 말(라이브) 모델."""
+    """모델 이름 단추를 누르면 뜨는 작은 창 (Claude 의 모델 고르기처럼).
+    첫 장: 모델 4개(✓·1~4) · 노력 › · 더 많은 모델 › · (라이브를 골랐을 때만) 말 모델 빠른/생각하는.
+    '노력 ›' · '더 많은 모델 ›' 을 누르면 같은 창 안에서 그 장으로 넘어간다 (‹ 로 돌아오기)."""
 
     def __init__(self, owner):
         super().__init__(owner, Qt.Popup)
         self.owner = owner
         self.setObjectName("modelpop")
         self.v = QVBoxLayout(self)
-        self.v.setContentsMargins(10, 10, 10, 10)
-        self.v.setSpacing(2)
+        self.v.setContentsMargins(6, 6, 6, 6)
+        self.v.setSpacing(0)
+        self.page = "main"
+        self.setFixedWidth(300)
         self.build()
 
-    def _head(self, text):
+    # ---- 줄 ----
+    def _clear(self):
+        while self.v.count():
+            it = self.v.takeAt(0)
+            w = it.widget()
+            if w:
+                w.hide()               # 바로 숨겨야 새 장과 겹쳐 보이지 않는다
+                w.setParent(None)
+                w.deleteLater()
+
+    def _sep(self):
+        line = QFrame()
+        line.setFixedHeight(1)
+        line.setStyleSheet(f"background:{pal()['line']}; margin:4px 8px;")
+        self.v.addWidget(line)
+
+    def _label(self, text, small=False):
         lab = QLabel(text)
-        lab.setStyleSheet(f"color:{pal()['dim']}; font-size:9pt; font-weight:700; padding:6px 8px 2px; background:transparent;")
+        lab.setWordWrap(True)
+        lab.setStyleSheet(f"color:{pal()['dim']}; font-size:{'8.5pt' if small else '9pt'}; padding:6px 12px 4px; background:transparent;")
         self.v.addWidget(lab)
 
-    def _row(self, name, desc, on, fn, badge=""):
+    def _row(self, left, right="", fn=None, on=False, badge="", color=None):
         P = pal()
         b = QPushButton()
         b.setCursor(Qt.PointingHandCursor)
+        b.setFixedHeight(38)
         h = QHBoxLayout(b)
-        h.setContentsMargins(10, 6, 10, 6)
-        col = QVBoxLayout()
-        col.setSpacing(0)
-        n = QLabel(name + (f"  <span style='font-size:8pt;color:{P['dim']};background:{P['card']}'>&nbsp;{badge}&nbsp;</span>" if badge else ""))
-        n.setTextFormat(Qt.RichText)
-        n.setStyleSheet(f"font-weight:700; color:{P['text']}; background:transparent;")
-        d = QLabel(desc)
-        d.setStyleSheet(f"color:{P['dim']}; font-size:8.5pt; background:transparent;")
-        col.addWidget(n)
-        col.addWidget(d)
-        h.addLayout(col, 1)
-        ck = QLabel("✓" if on else "")
-        ck.setStyleSheet(f"color:{self.owner._cc}; font-size:12pt; font-weight:800; background:transparent;")
-        h.addWidget(ck)
-        b.setMinimumHeight(50)
-        b.setStyleSheet(f"QPushButton {{ background:{P['card'] if on else 'transparent'}; border:none; border-radius:10px; text-align:left; }}"
-                        f"QPushButton:hover {{ background:{P['bubble']}; }}")
-        b.clicked.connect(fn)
+        h.setContentsMargins(12, 0, 12, 0)
+        h.setSpacing(6)
+        name = QLabel(left)
+        name.setStyleSheet(f"color:{color or P['text']}; font-size:10.5pt; background:transparent;")
+        h.addWidget(name)
+        if badge:
+            bd = QLabel(badge)
+            warn = badge.startswith("⚠")
+            bd.setStyleSheet(f"background:{'#FDE68A' if warn else P['card']}; color:{'#92400E' if warn else P['dim']};"
+                             f" border-radius:6px; padding:1px 6px; font-size:8.5pt;")
+            h.addWidget(bd)
+        h.addStretch(1)
+        r = QLabel("✓" if on else right)
+        r.setStyleSheet(f"color:{self.owner._cc if on else P['dim']}; font-size:{'12pt' if on else '10pt'};"
+                        f" font-weight:{'800' if on else '400'}; background:transparent;")
+        h.addWidget(r)
+        b.setStyleSheet(f"QPushButton {{ background:transparent; border:none; border-radius:8px; text-align:left; }}"
+                        f"QPushButton:hover {{ background:{P['card']}; }}")
+        if fn:
+            b.clicked.connect(fn)
         self.v.addWidget(b)
+        return b
 
     def build(self):
-        from .textchat import EFFORTS, TEXT_MODELS
-        while self.v.count():
-            it = self.v.takeAt(0)
-            if it.widget():
-                it.widget().deleteLater()
+        from .textchat import EFFORT_NOTE, EFFORTS, MAIN_MODELS, TEXT_MODELS, model_info
+        self._clear()
         P = pal()
         self.setStyleSheet(f"QFrame#modelpop {{ background:{P['bg']}; border:1px solid {P['line']}; border-radius:14px; }}")
         s = config.settings()
         cur = s.get("text_model") or "gemini-3.8-flash"
-        self._head("글 대화 모델")
-        for mid, name, desc, _think in TEXT_MODELS:
-            self._row(name, desc, mid == cur, lambda _=False, m=mid: self._set(text_model=m),
-                      "추천" if mid == "gemini-3.8-flash" else "")
-        if next((m for m in TEXT_MODELS if m[0] == cur), TEXT_MODELS[0])[3]:   # 생각하는 모델에서만
-            self._head("노력 정도  (높을수록 깊게 생각하지만 느리고 한도를 더 써요)")
-            bar = EffortBar(EFFORTS, s.get("effort") or "medium")
-            bar.changed.connect(lambda e: self._set(effort=e, rebuild=False))
-            self.v.addWidget(bar)
-        self._head("말 (라이브) 모델")
-        for mid, name in MODELS.items():
-            self._row(name.replace("⚡ ", "").replace("🧠 ", ""), "꾹 눌러 말할 때 · 목소리로 대답",
-                      mid == s.get("live_model"), lambda _=False, m=mid: self._set(live_model=m))
-        self.adjustSize()
+        if self.page == "effort":
+            self._row("‹  노력", fn=lambda: self._go("main"))
+            self._label("높은 노력은 더 깊게 생각하지만, 더 오래 걸리고 한도를 더 빨리 써요.", small=True)
+            eff = s.get("effort") or "medium"
+            bar = EffortBar(EFFORTS, eff)
+            note = QLabel()
+            note.setAlignment(Qt.AlignCenter)
 
-    def _set(self, rebuild=True, **kw):
+            def show_note(e):
+                n = EFFORT_NOTE.get(e, "")
+                warn = n.startswith("⚠")
+                note.setText(n)
+                note.setStyleSheet(f"color:{'#B45309' if warn else P['dim']}; font-size:8.5pt; padding:6px 0 8px; background:transparent;")
+            bar.changed.connect(lambda e: (config.save_settings(effort=e), self.owner._paint_model_btn(), show_note(e)))
+            show_note(eff)
+            self.v.addWidget(bar)
+            self.v.addWidget(note)
+        elif self.page == "more":
+            self._row("‹  더 많은 모델", fn=lambda: self._go("main"))
+            for mid, name, desc, _t in TEXT_MODELS[MAIN_MODELS:]:
+                self._row(name, desc if mid != cur else "", fn=lambda _=False, m=mid: self._set(text_model=m), on=mid == cur)
+        else:
+            for n, (mid, name, _d, _t) in enumerate(TEXT_MODELS[:MAIN_MODELS], 1):
+                self._row(name, str(n), fn=lambda _=False, m=mid: self._set(text_model=m), on=mid == cur)
+            if cur in [m[0] for m in TEXT_MODELS[MAIN_MODELS:]]:   # 더 많은 모델에서 고른 것도 위에 보이게
+                self._row(model_info(cur)[1], on=True)
+            self._sep()
+            if model_info(cur)[3]:   # 생각하는 모델에서만 노력
+                self._row("노력", dict(EFFORTS).get(s.get("effort") or "medium", "") + "  ›", fn=lambda: self._go("effort"))
+            self._row("더 많은 모델", "›", fn=lambda: self._go("more"))
+            if cur == "live":   # 라이브를 골랐을 때만: 말 모델
+                self._sep()
+                self._label("라이브 모델")
+                for mid, name in MODELS.items():
+                    self._row(name.replace("⚡ ", "").replace("🧠 ", ""), fn=lambda _=False, m=mid: self._set(live_model=m),
+                              on=mid == s.get("live_model"))
+        self.adjustSize()
+        self._place()
+
+    def _place(self):
+        btn = self.owner.model
+        g = btn.mapToGlobal(QPoint(0, 0))
+        self.move(g.x(), g.y() - self.sizeHint().height() - 6)
+
+    def _go(self, page):
+        self.page = page
+        self.build()
+
+    def keyPressEvent(self, e):
+        from .textchat import MAIN_MODELS, TEXT_MODELS
+        k = e.key()
+        if self.page == "main" and Qt.Key_1 <= k < Qt.Key_1 + MAIN_MODELS:
+            return self._set(text_model=TEXT_MODELS[k - Qt.Key_1][0])
+        if k in (Qt.Key_Left, Qt.Key_Backspace) and self.page != "main":
+            return self._go("main")
+        super().keyPressEvent(e)
+
+    def _set(self, **kw):
         config.save_settings(**kw)
         self.owner._paint_model_btn()
-        if rebuild:
-            self.build()
+        if "effort" in kw:   # 노력은 고르면 첫 장으로
+            self.page = "main"
+        self.build()
 
 
 # ------------------------------------------------------------------ [빨리 대답 Ctrl F] 같은 단추
@@ -517,6 +583,13 @@ class IconButton(QPushButton):
                 p.setBrush(accent)
             p.drawPath(path)
             p.drawLine(QPointF(cx, cy + 2), QPointF(cx, cy + 8))
+        elif k == "temp":     # 점선 말풍선 (임시 대화)
+            pen2 = QPen(col, 1.6, Qt.DashLine, Qt.RoundCap, Qt.RoundJoin)
+            pen2.setDashPattern([2.2, 2.0])
+            p.setPen(pen2)
+            p.drawRoundedRect(QRectF(cx - 7.5, cy - 6.5, 15, 11), 4, 4)
+            p.setPen(pen)
+            p.drawLine(QPointF(cx - 3, cy + 4.5), QPointF(cx - 5, cy + 7.5))
         elif k == "top":
             p.drawRoundedRect(QRectF(cx - 8, cy - 7, 16, 14), 2.5, 2.5)
             p.drawLine(QPointF(cx - 8, cy - 1), QPointF(cx + 8, cy - 1))
@@ -747,6 +820,8 @@ class ChatPanel(QWidget):
         head.addStretch(1)
         self.btn_top = IconButton("top", "위 칸(퍼플루·브라우저·터미널) 보이기 / 숨기기")
         self.btn_top.clicked.connect(self._toggle_top)
+        self.btn_temp = IconButton("temp", "임시 대화 (저장 안 됨) 켜기 / 끄기")
+        self.btn_temp.clicked.connect(self._toggle_temp)
         btn_new = IconButton("new", "새 대화")
         btn_new.clicked.connect(self._new_chat)
         self.btn_restore = QPushButton("⤢", self)
@@ -766,7 +841,7 @@ class ChatPanel(QWidget):
         btn_close = IconButton("close", "닫기 (Ctrl+Alt+C로 다시 열기)")
         btn_close.clicked.connect(self._close_clicked)
         head.setSpacing(2)
-        for b in (self.btn_top, btn_new, self.btn_mini, self.btn_pin, btn_set):
+        for b in (self.btn_top, self.btn_temp, btn_new, self.btn_mini, self.btn_pin, btn_set):
             head.addWidget(b)
         sep = QFrame()
         sep.setFixedSize(1, 16)
@@ -843,8 +918,8 @@ class ChatPanel(QWidget):
         gl.addWidget(self.input)
         tools = QHBoxLayout()
         b_img = QPushButton("+")
-        b_img.setToolTip("그림 첨부 · 임시 대화")
-        b_img.clicked.connect(lambda: self._plus_menu(b_img))
+        b_img.setToolTip("파일 첨부 (그림 · PDF · 글 파일 등)")
+        b_img.clicked.connect(self._attach)
         self.model = QPushButton()
         self.model.setObjectName("modelbtn")
         self.model.setCursor(Qt.PointingHandCursor)
@@ -1117,11 +1192,6 @@ class ChatPanel(QWidget):
         cp.clicked.connect(copy)
         rp.clicked.connect(lambda: self._reply(lab.selectedText() or text))
         if meta:
-            from .textchat import name_of
-            via = {"글": "⌨ 입력", "말": "🎤 말"}.get(meta.get("via"), "")
-            info = QLabel(f"{name_of(meta.get('model', ''))}" + (f" · {via}" if via else ""))
-            info.setStyleSheet(f"color:{P['dim']}; font-size:8.5pt; background:transparent;")
-            row.addWidget(info)
             more = QPushButton("⋯")
             more.setToolTip("자세히 (모델 · 글/말 · 노력 · 걸린 시간)")
             more.setCursor(Qt.PointingHandCursor)
@@ -1576,20 +1646,14 @@ class ChatPanel(QWidget):
         else:
             self.body.set_glow(on, self._cc, not light())
 
-    def _plus_menu(self, btn):
-        m = QMenu(self)
-        m.addAction("🖼  그림 첨부", self._attach)
-        m.addSeparator()
-        temp = bool(getattr(self.brain, "temporary", False))
-        m.addAction("⊘  임시 대화 끝내기" if temp else "◌  임시 대화 (저장 안 됨)", self._toggle_temp)
-        m.exec(btn.mapToGlobal(btn.rect().topLeft()) - QPoint(0, m.sizeHint().height()))
-
     def _toggle_temp(self):
         self.brain.set_temporary(not bool(getattr(self.brain, "temporary", False)))
 
     def _temp_changed(self, on: bool):
         """임시 대화: 화면을 비우고 '임시 대화' 로, 끝내면 원래 대화로 돌아간다."""
         self.temp = on
+        self.btn_temp.active = on
+        self.btn_temp.update()
         self.history, self.past, self.turn = [], [], self._new_turn()
         if on:
             self._show_title("임시 대화")
@@ -1601,10 +1665,8 @@ class ChatPanel(QWidget):
 
     def _model_popup(self):
         pop = ModelPopup(self)
-        pop.adjustSize()
-        g = self.model.mapToGlobal(QPoint(0, 0))
-        pop.move(g.x(), g.y() - pop.height() - 6)
         pop.show()
+        pop.setFocus()
 
     def _paint_model_btn(self):
         from .textchat import EFFORTS, model_info
@@ -1661,27 +1723,60 @@ class ChatPanel(QWidget):
 
         def work():
             from .server import _expand_chat
-            data, mime = (img or (None, None))
-            full = _expand_chat(text, mentions)
+            att = img or {}
+            data, mime = att.get("data"), att.get("mime")
+            full = _expand_chat(text or "이 파일 봐 줘", mentions)
             shown = text
+            if att:
+                live = (config.settings().get("text_model") or "") == "live"
+                if att.get("text") is not None:   # 글 파일: 내용을 그대로 붙인다
+                    full += f"\n\n[첨부 파일: {att['name']}]\n{att['text'][:120000]}"
+                elif mime == "application/pdf" and live:   # 라이브는 PDF 를 못 받아서 경로로
+                    data = mime = None
+                if data is None and att.get("text") is None:
+                    full += f"\n\n[첨부 파일: {att['name']} — 경로: {att['path']} (필요하면 도구로 열거나 읽어)]"
+                shown = (text + "\n" if text else "") + f"📎 {att['name']}"
             if quote:   # 답글: 퍼플루에게는 어느 부분에 대한 말인지, 말풍선에는 짧게
                 full = f"(네 앞 대답 중 이 부분에 대한 말이야: \"{quote[:600]}\")\n{full}"
                 shown = f"↪ {quote[:60]}{'…' if len(quote) > 60 else ''}\n{text}"
             self.brain.send_text(full, data, mime or "image/jpeg", shown=shown)
         threading.Thread(target=work, daemon=True).start()
 
+    TEXT_EXT = {".txt", ".md", ".csv", ".json", ".py", ".js", ".ts", ".html", ".css", ".xml", ".yaml", ".yml",
+                ".log", ".ini", ".bat", ".ps1", ".java", ".c", ".cpp", ".h", ".cs", ".go", ".rs", ".sql", ".tsv"}
+
     def _attach(self):
-        path, _ = QFileDialog.getOpenFileName(self, "그림 고르기", "", "그림 (*.png *.jpg *.jpeg *.webp *.bmp *.gif)")
+        """+ : 파일을 바로 고른다. 그림·PDF 는 그대로 보내고, 글 파일은 내용을 붙이고, 나머지는 경로를 알려 준다."""
+        path, _ = QFileDialog.getOpenFileName(self, "첨부할 파일 고르기", "", "모든 파일 (*.*)")
         if not path:
             return
-        from PIL import Image
         import io
-        im = Image.open(path).convert("RGB")
-        im.thumbnail((1600, 1600))
-        buf = io.BytesIO()
-        im.save(buf, "JPEG", quality=85)
-        self.attach = (buf.getvalue(), "image/jpeg")
-        self.attach_lbl.setText(f"📎 {path.split('/')[-1]}  (보내면 같이 가요)")
+        import os
+        name, ext = os.path.basename(path), os.path.splitext(path)[1].lower()
+        win_path = path.replace("/", "\\")
+        att = {"name": name, "path": win_path, "data": None, "mime": None, "text": None}
+        try:
+            if ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"):
+                from PIL import Image
+                im = Image.open(path).convert("RGB")
+                im.thumbnail((1600, 1600))
+                buf = io.BytesIO()
+                im.save(buf, "JPEG", quality=85)
+                att.update(data=buf.getvalue(), mime="image/jpeg")
+            elif ext == ".pdf" and os.path.getsize(path) < 15 * 1024 * 1024:
+                att.update(data=open(path, "rb").read(), mime="application/pdf")
+            elif ext in self.TEXT_EXT and os.path.getsize(path) < 400 * 1024:
+                raw = open(path, "rb").read()
+                for enc in ("utf-8", "cp949"):
+                    try:
+                        att["text"] = raw.decode(enc)
+                        break
+                    except UnicodeDecodeError:
+                        pass
+        except Exception as e:
+            att["error"] = str(e)
+        self.attach = att
+        self.attach_lbl.setText(f"📎 {name}  (보내면 같이 가요 · 다시 + 로 바꾸기)")
         self.attach_lbl.show()
 
     def eventFilter(self, obj, e):
