@@ -238,19 +238,23 @@ class GlowBody(QFrame):
         strength = 1.0 if self.dark else 0.8
         breathe = 0.92 + 0.08 * math.sin(t * 0.9)
         # (가로 위치, 색, 가로 반지름, 세로 반지름, 진하기) — 가운데 넓은 빛 + 양옆 어울리는 색 둘
+        # (가로, 위로 올린 정도 px, 색, 가로 반지름, 세로 반지름, 진하기)
+        # 아래(입력칸 근처)는 내 색 → 위로 갈수록 색상이 조금씩 돌아간 색으로 바뀐다
         blobs = [
-            (0.50 + 0.03 * math.sin(t * 0.35), b, 0.80, 230, 150),
-            (0.20 + 0.05 * math.sin(t * 0.27 + 1.3), self._turn(b, -38, 1.0, 1.05), 0.50, 170, 120),
-            (0.80 + 0.05 * math.sin(t * 0.31 + 2.1), self._turn(b, 42, 0.9, 1.08), 0.50, 170, 120),
-            (0.50 + 0.08 * math.sin(t * 0.22 + 0.6), self._turn(b, 0, 0.45, 1.25), 1.00, 110, 80),   # 밝은 띠
+            (0.50 + 0.03 * math.sin(t * 0.35), 0, b, 0.85, 300, 150),
+            (0.18 + 0.05 * math.sin(t * 0.27 + 1.3), 0, self._turn(b, -38, 1.0, 1.05), 0.55, 260, 115),
+            (0.82 + 0.05 * math.sin(t * 0.31 + 2.1), 0, self._turn(b, 42, 0.9, 1.08), 0.55, 260, 115),
+            (0.45 + 0.06 * math.sin(t * 0.25 + 0.4), 170, self._turn(b, 55, 0.95, 1.1), 0.75, 280, 105),   # 중간: 색이 바뀌기 시작
+            (0.55 + 0.06 * math.sin(t * 0.2 + 2.0), 330, self._turn(b, 110, 0.8, 1.15), 0.70, 260, 75),   # 위: 더 바뀐 색, 옅게
+            (0.50 + 0.08 * math.sin(t * 0.22 + 0.6), 0, self._turn(b, 0, 0.45, 1.25), 1.05, 160, 80),   # 밝은 띠
         ]
         a_ = self.anchor
-        cy = (a_.geometry().top() + a_.height() * 0.3) if a_ is not None and a_.isVisible() else H
+        cy = (a_.geometry().top() + a_.height() * 0.5) if a_ is not None and a_.isVisible() else H
         p.setPen(Qt.NoPen)
-        for fx, col, rx, ry, alpha in blobs:
+        for fx, up, col, rx, ry, alpha in blobs:
             a = alpha * strength * breathe
             p.save()
-            p.translate(W * fx, cy)
+            p.translate(W * fx, cy - up)
             p.scale(W * rx, ry)   # 원을 납작하게 → 옆으로 넓게 퍼진다 (세로는 화면 크기와 상관없이 일정)
             g = QRadialGradient(0, 0, 1)
             for stop, k in ((0, 1), (0.3, 0.62), (0.6, 0.24), (0.82, 0.07), (1, 0)):
