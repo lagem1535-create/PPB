@@ -1592,7 +1592,7 @@ class ChatPanel(QWidget):
             return
         if not r.get("logged_in"):
             if QMessageBox.question(self, name, f"{name}는 설치돼 있지만 로그인이 필요해 보여요.\n\n"
-                                    f"새 창에서 로그인할까요? 로그인한 뒤 다시 '터미널로 연동'을 눌러 주세요.\n\n"
+                                    f"새 창에서 로그인할까요? {info.get('login_hint', '')}\n로그인한 뒤 다시 '터미널로 연동'을 눌러 주세요.\n\n"
                                     f"({r.get('output', '')[:160]})") == QMessageBox.Yes:
                 cli_agents.open_login(agent)
             return
