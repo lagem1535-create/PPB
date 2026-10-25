@@ -15,13 +15,17 @@ from . import config
 
 AGENTS = {
     "claude": {"name": "Claude Code", "exe": ["claude"], "install": "npm install -g @anthropic-ai/claude-code",
-               "login": "claude", "site": "claude.com/claude-code"},
+               "login": "claude", "site": "claude.com/claude-code",
+               "login_hint": "새 창에 Claude Code 가 열리면 /login 을 치고 Enter → 브라우저에서 로그인하세요."},
     "codex": {"name": "Codex", "exe": ["codex"], "install": "npm install -g @openai/codex",
-              "login": "codex login", "site": "github.com/openai/codex"},
+              "login": "codex login", "site": "github.com/openai/codex",
+              "login_hint": "새 창에서 브라우저 로그인이 열려요. 로그인하면 돼요."},
     "copilot": {"name": "GitHub Copilot", "exe": ["copilot"], "install": "npm install -g @github/copilot",
-                "login": "copilot login", "site": "github.com/features/copilot/cli"},
+                "login": "copilot login", "site": "github.com/features/copilot/cli",
+                "login_hint": "새 창에 나오는 코드를 github.com/login/device 에 넣어 로그인하세요."},
     "antigravity": {"name": "Antigravity", "exe": ["agy", "antigravity"], "install": "",
-                    "login": "agy", "site": "antigravity.google"},
+                    "login": "agy", "site": "antigravity.google",
+                    "login_hint": "새 창에서 안내대로 구글 계정으로 로그인하세요."},
 }
 PREFIX = "cli:"
 ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07")
@@ -70,6 +74,7 @@ def check(agent: str) -> dict:
         return {"installed": False, "logged_in": False}
     try:
         r = subprocess.run(command(agent, "Reply with just: OK", False), capture_output=True, text=True,
+                           stdin=subprocess.DEVNULL,   # 입력을 닫아 둔다 (안 그러면 더 읽을 글을 기다리며 멈춘다)
                            encoding="utf-8", errors="replace", timeout=120, cwd=os.path.expanduser("~"),
                            creationflags=subprocess.CREATE_NO_WINDOW)
         out = ANSI.sub("", (r.stdout or "") + (r.stderr or ""))
@@ -97,7 +102,8 @@ async def run(agent: str, prompt: str, cont: bool, cwd: str, on_line) -> tuple[i
     """에이전트를 한 번 실행하고, 한 줄씩 on_line·터미널로. (끝 코드, 전체 글)."""
     cmd = command(agent, prompt, cont)
     _emit("start", f"{pretty(cmd)}    # 퍼플루 · {AGENTS[agent]['name']}")
-    proc = await asyncio.create_subprocess_exec(*cmd, cwd=cwd, stdout=asyncio.subprocess.PIPE,
+    proc = await asyncio.create_subprocess_exec(*cmd, cwd=cwd, stdin=asyncio.subprocess.DEVNULL,
+                                                stdout=asyncio.subprocess.PIPE,
                                                 stderr=asyncio.subprocess.STDOUT,
                                                 creationflags=subprocess.CREATE_NO_WINDOW)
     lines = []
