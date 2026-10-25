@@ -12,7 +12,7 @@ import threading
 import time
 from ctypes import wintypes
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (QColor, QConicalGradient, QCursor, QFont, QGuiApplication, QLinearGradient, QPainter,
                            QPainterPath, QPen, QRadialGradient)
 from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QListWidget,
@@ -355,6 +355,39 @@ class EffortBar(QWidget):
         p.end()
 
 
+class Chevron(QWidget):
+    """묶음 머리줄의 작은 꺾쇠: 접히면 ›, 펴지면 ⌄ — 글자 대신 둥근 선으로 그리고, 바뀔 때 살짝 돈다."""
+
+    def __init__(self, color, down=False):
+        super().__init__()
+        self.setFixedSize(14, 14)
+        self.color = QColor(color)
+        self.angle = 90.0 if down else 0.0
+        self.anim = None
+
+    def turn(self, down):
+        from PySide6.QtCore import QEasingCurve, QVariantAnimation
+        self.anim = QVariantAnimation(self, startValue=self.angle, endValue=90.0 if down else 0.0, duration=160)
+        self.anim.setEasingCurve(QEasingCurve.OutCubic)
+        self.anim.valueChanged.connect(self._set)
+        self.anim.start()
+
+    def _set(self, a):
+        self.angle = float(a)
+        self.update()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        pen = QPen(self.color, 1.6)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        p.setPen(pen)
+        p.translate(7, 7)
+        p.rotate(self.angle)
+        p.drawPolyline([QPointF(-1.6, -3.6), QPointF(2.0, 0), QPointF(-1.6, 3.6)])
+
+
 class ModelPopup(QFrame):
     """모델 이름 단추를 누르면 뜨는 작은 창 (Claude 의 모델 고르기처럼).
     회사별 묶음 (● Gemini · GPT · Claude · Ollama · 그외, 눌러서 접기/펴기) → 노력 › → (라이브면) 말 모델 → 모델 관리 ›.
@@ -392,7 +425,7 @@ class ModelPopup(QFrame):
         lab.setStyleSheet(f"color:{pal()['dim']}; font-size:{'8.5pt' if small else '9pt'}; padding:6px 12px 4px; background:transparent;")
         self.v.addWidget(lab)
 
-    def _row(self, left, right="", fn=None, on=False, badge="", color=None, indent=False, sub=""):
+    def _row(self, left, right="", fn=None, on=False, badge="", color=None, indent=False, sub="", into=None):
         P = pal()
         b = QPushButton()
         b.setCursor(Qt.PointingHandCursor)
@@ -423,12 +456,14 @@ class ModelPopup(QFrame):
                         f"QPushButton:hover {{ background:{P['card']}; }}")
         if fn:
             b.clicked.connect(fn)
-        self.v.addWidget(b)
+        (into or self.v).addWidget(b)
         return b
 
     def build(self):
         from .textchat import EFFORTS, model_info
+        self.setUpdatesEnabled(False)   # 다 바꾼 뒤 한 번에 그린다 (깜빡임 방지)
         self._clear()
+        self._boxes = {}
         P = pal()
         self.setStyleSheet(f"QFrame#modelpop {{ background:{P['bg']}; border:1px solid {P['line']}; border-radius:14px; }}")
         s = config.settings()
@@ -450,22 +485,28 @@ class ModelPopup(QFrame):
             for g in groups:
                 is_open = g["id"] in opened
                 has_cur = any(it["mid"] == cur for it in g["items"])
-                self._group_row(g, is_open, has_cur)
-                if not is_open:
-                    continue
+                head = self._group_row(g, is_open, has_cur)
+                box = QWidget()
+                box.setStyleSheet("background:transparent;")
+                bl = QVBoxLayout(box)
+                bl.setContentsMargins(0, 0, 0, 0)
+                bl.setSpacing(0)
                 if g["key"] and not g["has_key"]:
-                    self._row(f"{g['name']} 키 넣기", "모델 관리 ›", fn=self._open_manage, indent=True)
+                    self._row(f"{g['name']} 키 넣기", "모델 관리 ›", fn=self._open_manage, indent=True, into=bl)
                 elif g["id"] == "ollama" and not g["items"]:
-                    self._row("깔린 모델이 없어요 (Ollama 를 켜 주세요)", "›", fn=self._open_manage, indent=True)
+                    self._row("깔린 모델이 없어요 (Ollama 를 켜 주세요)", "›", fn=self._open_manage, indent=True, into=bl)
                 for it in g["items"]:
                     if it["kind"] == "api" and not it["ready"]:
                         continue   # 키가 없는 API 모델은 '키 넣기' 한 줄로
                     if it["kind"] == "cli" and not it["ready"]:
-                        self._row(it["name"], "연동 ›", indent=True, sub="터미널",
+                        self._row(it["name"], "연동 ›", indent=True, sub="터미널", into=bl,
                                   fn=lambda _=False, a=it["agent"]: (self.close(), self.owner._cli_connect(a)))
                     else:
                         self._row(it["name"], fn=lambda _=False, m=it["mid"]: self._set(text_model=m), on=it["mid"] == cur,
-                                  indent=True, sub={"cli": "터미널", "local": "이 PC"}.get(it["kind"], ""))
+                                  indent=True, sub={"cli": "터미널", "local": "이 PC"}.get(it["kind"], ""), into=bl)
+                box.setVisible(is_open)
+                self.v.addWidget(box)
+                self._boxes[g["id"]] = (box, head)
             self._sep()
             if model_info(cur)[3]:   # 생각하는 모델에서만 노력
                 self._row("노력", dict(EFFORTS).get(s.get("effort") or "medium", "") + "  ›", fn=lambda: self._go("effort"))
@@ -475,10 +516,9 @@ class ModelPopup(QFrame):
                     self._row(name.replace("⚡ ", "").replace("🧠 ", ""), fn=lambda _=False, m=mid: self._set(live_model=m),
                               on=mid == s.get("live_model"), indent=True)
             self._row("모델 관리", "›", fn=self._open_manage)
-        self.setMinimumHeight(0)
-        self.setMaximumHeight(16777215)
         self._fit()
-        QTimer.singleShot(0, self._fit)   # 새 줄들이 자리 잡은 뒤 한 번 더
+        self.setUpdatesEnabled(True)
+        QTimer.singleShot(0, self._fit)   # 새 줄들이 자리 잡은 뒤 한 번 더 (같으면 아무것도 안 함)
 
     def _group_row(self, g, is_open, has_cur):
         """묶음 머리줄: ● Gemini ⌄ (누르면 접기/펴기). 접혀 있어도 지금 고른 모델이 들어 있으면 ✓."""
@@ -494,25 +534,33 @@ class ModelPopup(QFrame):
         dot.setStyleSheet(f"background:{g['color']}; border-radius:4px;")
         h.addWidget(dot)
         name = QLabel(g["name"])
-        name.setStyleSheet(f"color:{g['color']}; font-weight:700; font-size:10.5pt; background:transparent;")
+        name.setStyleSheet(f"color:{P['text']}; font-weight:600; font-size:10.5pt; background:transparent;")
         h.addWidget(name)
-        arrow = QLabel("⌄" if is_open else "›")
-        arrow.setStyleSheet(f"color:{P['dim']}; font-size:{'11pt' if is_open else '12pt'}; background:transparent;")
-        h.addWidget(arrow)
+        b.chev = Chevron(P["dim"], is_open)
+        h.addWidget(b.chev, 0, Qt.AlignVCenter)
         h.addStretch(1)
-        if has_cur and not is_open:
-            ck = QLabel("✓")
-            ck.setStyleSheet(f"color:{self.owner._cc}; font-weight:800; background:transparent;")
-            h.addWidget(ck)
+        b.ck = QLabel("✓")
+        b.ck.setStyleSheet(f"color:{self.owner._cc}; font-weight:800; background:transparent;")
+        b.ck.setVisible(has_cur and not is_open)
+        b.has_cur = has_cur
+        h.addWidget(b.ck)
         b.setStyleSheet(f"QPushButton {{ background:transparent; border:none; border-radius:8px; }}"
                         f"QPushButton:hover {{ background:{P['card']}; }}")
         b.clicked.connect(lambda: self._toggle_group(g["id"]))
         self.v.addWidget(b)
+        return b
 
     def _toggle_group(self, gid):
         opened = self.owner.__dict__.setdefault("_model_groups_open", set())
         opened.symmetric_difference_update({gid})
-        self.build()
+        box, head = self._boxes[gid]
+        is_open = gid in opened
+        self.setUpdatesEnabled(False)
+        box.setVisible(is_open)
+        head.ck.setVisible(head.has_cur and not is_open)
+        self._fit()
+        self.setUpdatesEnabled(True)
+        head.chev.turn(is_open)
 
     def _open_manage(self):
         self.close()
@@ -521,9 +569,14 @@ class ModelPopup(QFrame):
     def _fit(self):
         """창 높이를 내용에 딱 맞게 (예전 장의 높이가 남아 빈 칸이 생기던 것)."""
         self.v.activate()
-        h = self.v.totalSizeHint().height() if hasattr(self.v, "totalSizeHint") else self.v.sizeHint().height()
-        self.setFixedHeight(max(60, h))
-        self._place()
+        h = max(60, self.v.totalSizeHint().height() if hasattr(self.v, "totalSizeHint") else self.v.sizeHint().height())
+        g = self.owner.model.mapToGlobal(QPoint(0, 0))
+        rect = QRect(g.x(), g.y() - h - 6, self.width(), h)
+        if rect != self.geometry():
+            self.setMinimumHeight(0)
+            self.setMaximumHeight(16777215)
+            self.setGeometry(rect)
+            self.setFixedHeight(h)
 
     def _pick_effort(self, e, bar, before):
         """최대로 올리면 경고 → '동의' 를 눌러야 바뀐다. 아니면 원래대로."""
@@ -548,9 +601,7 @@ class ModelPopup(QFrame):
         self.build()
 
     def _place(self):
-        btn = self.owner.model
-        g = btn.mapToGlobal(QPoint(0, 0))
-        self.move(g.x(), g.y() - self.sizeHint().height() - 6)
+        self._fit()
 
     def _go(self, page):
         self.page = page

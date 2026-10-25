@@ -135,7 +135,7 @@ class SettingsWindow(QWidget):
         tabs.addTab(self._memo_tab(), "📝 메모")
         tabs.addTab(self._voice_tab(), "🔊 목소리")
         tabs.addTab(self._skills_tab(), "🧩 스킬")
-        tabs.addTab(self._models_tab(), "🤖 모델")
+        tabs.addTab(self._models_tab(), "모델")
         tabs.addTab(self._mcp_tab(), "🔌 MCP")
         tabs.addTab(self._settings_tab(), "⚙ 설정")
         tabs.addTab(self._tablet_tab(), "📱 갤럭시 탭")
@@ -889,7 +889,7 @@ class SettingsWindow(QWidget):
         lay.addWidget(tip)
         for gid, gname, color, key, agent in GROUPS:
             g = full[gid]
-            head = QLabel(f"<span style='color:{color}'>●</span>  <b style='color:{color}'>{gname}</b>")
+            head = QLabel(f"<span style='color:{color}'>●</span>&nbsp; <b>{gname}</b>")
             head.setObjectName("cardtitle")
             lay.addWidget(head)
             box = QFrame()
@@ -909,17 +909,17 @@ class SettingsWindow(QWidget):
                 v.addLayout(r)
             if key:
                 titles = {"gemini": "Gemini 키", "openai": "OpenAI 키", "anthropic": "Claude 키"}
-                line(titles[key], "✓ 저장됨" if config.get_key(key) else "없음",
+                line(titles[key], "저장됨" if config.get_key(key) else "없음",
                      "키 입력/변경", lambda _=False, k=key, t=titles[key]: (self._ask_model_key(k, t)))
             if agent:
                 info = cli_agents.AGENTS[agent]
                 ok = agent in cli_agents.connected()
                 path = cli_agents.find(agent)
-                st = "✓ 연동됨 (터미널)" if ok else ("설치됨 · 연동 안 됨" if path else "설치 안 됨")
+                st = "연동됨 (터미널)" if ok else ("설치됨 · 연동 안 됨" if path else "설치 안 됨")
                 line(info["name"], st, "다시 확인" if ok else "터미널로 연동", lambda _=False, a=agent: self.cli_conn.start(a))
             if gid == "ollama":
                 stt = providers.ollama_status(fresh=True)
-                st = ("✓ 켜져 있어요" if stt["running"] else ("설치됨 · 꺼져 있어요 (Ollama 를 켜 주세요)" if stt["installed"]
+                st = ("켜져 있어요" if stt["running"] else ("설치됨 · 꺼져 있어요 (Ollama 를 켜 주세요)" if stt["installed"]
                                                               else "설치 안 됨 · ollama.com 에서 설치"))
                 line("Ollama", st, "새로고침", lambda: self.refresh_models())
                 if stt["running"]:
