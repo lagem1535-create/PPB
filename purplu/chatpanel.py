@@ -461,7 +461,6 @@ class ModelPopup(QFrame):
 
     def build(self):
         from .textchat import EFFORTS, model_info
-        self.setUpdatesEnabled(False)   # 다 바꾼 뒤 한 번에 그린다 (깜빡임 방지)
         self._clear()
         self._boxes = {}
         P = pal()
@@ -517,11 +516,10 @@ class ModelPopup(QFrame):
                               on=mid == s.get("live_model"), indent=True)
             self._row("모델 관리", "›", fn=self._open_manage)
         self._fit()
-        self.setUpdatesEnabled(True)
         QTimer.singleShot(0, self._fit)   # 새 줄들이 자리 잡은 뒤 한 번 더 (같으면 아무것도 안 함)
 
     def _group_row(self, g, is_open, has_cur):
-        """묶음 머리줄: ● Gemini ⌄ (누르면 접기/펴기). 접혀 있어도 지금 고른 모델이 들어 있으면 ✓."""
+        """묶음 머리줄: Gemini ⌄ (누르면 접기/펴기). 접혀 있어도 지금 고른 모델이 들어 있으면 ✓."""
         P = pal()
         b = QPushButton()
         b.setCursor(Qt.PointingHandCursor)
@@ -529,12 +527,8 @@ class ModelPopup(QFrame):
         h = QHBoxLayout(b)
         h.setContentsMargins(12, 0, 12, 0)
         h.setSpacing(8)
-        dot = QLabel()
-        dot.setFixedSize(9, 9)
-        dot.setStyleSheet(f"background:{g['color']}; border-radius:4px;")
-        h.addWidget(dot)
         name = QLabel(g["name"])
-        name.setStyleSheet(f"color:{P['text']}; font-weight:600; font-size:10.5pt; background:transparent;")
+        name.setStyleSheet(f"color:{P['text']}; font-weight:700; font-size:10.5pt; background:transparent;")
         h.addWidget(name)
         b.chev = Chevron(P["dim"], is_open)
         h.addWidget(b.chev, 0, Qt.AlignVCenter)
@@ -555,11 +549,9 @@ class ModelPopup(QFrame):
         opened.symmetric_difference_update({gid})
         box, head = self._boxes[gid]
         is_open = gid in opened
-        self.setUpdatesEnabled(False)
         box.setVisible(is_open)
         head.ck.setVisible(head.has_cur and not is_open)
         self._fit()
-        self.setUpdatesEnabled(True)
         head.chev.turn(is_open)
 
     def _open_manage(self):

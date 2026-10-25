@@ -889,7 +889,7 @@ class SettingsWindow(QWidget):
         lay.addWidget(tip)
         for gid, gname, color, key, agent in GROUPS:
             g = full[gid]
-            head = QLabel(f"<span style='color:{color}'>●</span>&nbsp; <b>{gname}</b>")
+            head = QLabel(f"<b>{gname}</b>")
             head.setObjectName("cardtitle")
             lay.addWidget(head)
             box = QFrame()
