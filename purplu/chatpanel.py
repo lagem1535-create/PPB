@@ -448,6 +448,15 @@ class ModelPopup(QFrame):
                     self._row(name, desc if mid != cur else "", fn=lambda _=False, m=mid: self._set(text_model=m), on=mid == cur)
             else:
                 self._row("Claude 키 넣기", "설정 ›", fn=lambda: (self.close(), self.owner.open_settings("설정")))
+            from .cli_agents import AGENTS, connected
+            self._label("터미널 에이전트")
+            done = connected()
+            for aid, info in AGENTS.items():
+                mid = "cli:" + aid
+                if aid in done:
+                    self._row(info["name"], "", fn=lambda _=False, m=mid: self._set(text_model=m), on=mid == cur)
+                else:
+                    self._row(info["name"], "터미널로 연동 ›", fn=lambda _=False, a=aid: (self.close(), self.owner._cli_connect(a)))
             self._label("GPT")
             gpts = openai_models() if config.get_key("openai") else []
             if gpts:
@@ -763,6 +772,7 @@ class ChatPanel(QWidget):
     _web_hwnd = Signal(int)    # 퍼플루 브라우저 창이 생김 → 위쪽 칸에 끼우기
     _web_used = Signal()       # 퍼플루가 브라우저를 씀 → 위쪽 칸을 브라우저로
     _term_used = Signal()      # 퍼플루가 명령을 실행함 → 위쪽 칸을 터미널로
+    _agent_line = Signal(str, str)   # 터미널 에이전트의 한 줄 (다른 스레드 → 화면)
 
     def __init__(self, brain, icon=None, open_settings=None):
         super().__init__(None, Qt.Window)
@@ -805,6 +815,9 @@ class ChatPanel(QWidget):
         self.term, self._term_backlog = None, []
         from .tools import shell as _shell
         _shell.listeners.append(self._purplu_ran)
+        from . import cli_agents as _cli
+        _cli.stream_listeners.append(lambda k, d: self._agent_line.emit(k, str(d)))
+        self._agent_line.connect(self._agent_event)
         # 위쪽 칸 맨 위: 퍼플루 · 브라우저 · 터미널 고르기
         self.topwrap = QWidget()
         tw = QVBoxLayout(self.topwrap)
@@ -1536,6 +1549,65 @@ class ChatPanel(QWidget):
                 threading.Thread(target=ob.start, daemon=True).start()
         else:
             self.term.focus()
+
+    # ---------------- 터미널 에이전트 연동 ----------------
+    _cli_done = Signal(str, dict)
+
+    def _cli_connect(self, agent):
+        """'터미널로 연동': 동의 → 설치 확인 → 로그인 확인 → 연동 (확인은 뒤에서, 최대 2분)."""
+        from PySide6.QtWidgets import QMessageBox
+        from .cli_agents import AGENTS
+        name = AGENTS[agent]["name"]
+        if QMessageBox.question(self, f"{name} 연동",
+                                f"{name}를 퍼플루와 연동할까요?\n\n연동하면 글 대화에서 {name}를 고를 수 있고, "
+                                f"대화창 위 '터미널'의 지금 폴더에서 일해요 (파일을 만들고 고칠 수 있어요).\n"
+                                f"설치·로그인돼 있는지 먼저 확인할게요 (짧은 시험 질문을 한 번 보내요).") != QMessageBox.Yes:
+            return
+        self.turn["results"].append(f"{html.escape(name)} 확인하는 중… (설치 · 로그인)")
+        self._schedule()
+        if not hasattr(self, "_cli_hooked"):
+            self._cli_done.connect(self._cli_checked)
+            self._cli_hooked = True
+
+        def work():
+            from . import cli_agents
+            self._cli_done.emit(agent, cli_agents.check(agent))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _cli_checked(self, agent, r):
+        from PySide6.QtWidgets import QMessageBox
+        from . import cli_agents
+        info = cli_agents.AGENTS[agent]
+        name = info["name"]
+        if not r.get("installed"):
+            how = info["install"]
+            msg = f"{name}가 이 PC에 설치돼 있지 않아요."
+            if how:
+                if QMessageBox.question(self, name, msg + f"\n\n터미널에서 설치할까요?\n  {how}\n(Node.js 가 있어야 해요)") == QMessageBox.Yes:
+                    self._show_top(2)
+                    self.term.cur.con.insertPlainText(how)   # 엔터를 누르면 설치 (직접 확인하고)
+                    self.term.focus()
+            else:
+                QMessageBox.information(self, name, msg + f"\n{info['site']} 에서 설치해 주세요.")
+            return
+        if not r.get("logged_in"):
+            if QMessageBox.question(self, name, f"{name}는 설치돼 있지만 로그인이 필요해 보여요.\n\n"
+                                    f"새 창에서 로그인할까요? 로그인한 뒤 다시 '터미널로 연동'을 눌러 주세요.\n\n"
+                                    f"({r.get('output', '')[:160]})") == QMessageBox.Yes:
+                cli_agents.open_login(agent)
+            return
+        have = list(dict.fromkeys((config.settings().get("cli_agents") or []) + [agent]))
+        config.save_settings(cli_agents=have, text_model="cli:" + agent)
+        self._paint_model_btn()
+        self.turn["results"].append(f"✓ {html.escape(name)} 연동됐어요. 이제 글로 부탁하면 터미널에서 {html.escape(name)}가 일해요.")
+        self._schedule()
+
+    def _agent_event(self, kind, data):
+        if kind == "start" and self._top_index() != 2:
+            self._show_top(2, auto=True)
+        if self.term is None:
+            self._show_top(2, auto=True)
+        self.term.agent_event.emit(kind, data)
 
     def _term_expand(self):
         """터미널 ⤢: 위쪽을 크게(대화는 조금만) ↔ 보통."""

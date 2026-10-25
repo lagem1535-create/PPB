@@ -10,6 +10,7 @@ import threading
 import time
 
 import httpx
+from pathlib import Path
 
 from . import trace
 
@@ -40,7 +41,83 @@ def _url(path: str) -> str:
     return f"{DB_URL}/{ROOT}/{path.strip('/')}.json"
 
 
+# ---- 'local' = Firebase 없이 이 PC에만 저장 (data/local_db.json). 처음 쓰는 사람은 이걸로 바로 시작 ----
+LOCAL = "local"
+_LOCAL_FILE = Path(__file__).resolve().parent.parent / "data" / "local_db.json"
+_local_lock = threading.Lock()
+_local_tree = None
+
+
+def is_local() -> bool:
+    return DB_URL == LOCAL
+
+
+def _ltree() -> dict:
+    global _local_tree
+    if _local_tree is None:
+        try:
+            _local_tree = json.loads(_LOCAL_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            _local_tree = {}
+    return _local_tree
+
+
+def _lsave():
+    _LOCAL_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _LOCAL_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(_local_tree, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(_LOCAL_FILE)
+
+
+def _lwalk(path: str, make=False):
+    node, keys = _ltree(), [k for k in path.strip("/").split("/") if k]
+    for k in keys[:-1]:
+        if k not in node or not isinstance(node[k], dict):
+            if not make:
+                return None, None
+            node[k] = {}
+        node = node[k]
+    return node, (keys[-1] if keys else None)
+
+
+def _local(op: str, path: str, value=None):
+    import copy
+    import secrets
+    with _local_lock:
+        if op == "get":
+            if not path.strip("/"):
+                return copy.deepcopy(_ltree())
+            parent, key = _lwalk(path)
+            return copy.deepcopy(parent.get(key)) if parent is not None else None
+        parent, key = _lwalk(path, make=True)
+        if op == "put":
+            parent[key] = value
+        elif op == "patch":
+            cur = parent.get(key) if isinstance(parent.get(key), dict) else {}
+            cur.update(value or {})
+            parent[key] = cur
+        elif op == "post":   # 시간 순서로 정렬되는 이름 (Firebase push id 처럼)
+            name = f"-{now_ms():013d}{secrets.token_hex(3)}"
+            node = parent.setdefault(key, {}) if isinstance(parent.get(key), dict) else parent.setdefault(key, {})
+            node[name] = value
+            _lsave()
+            return name
+        elif op == "delete":
+            parent.pop(key, None)
+        _lsave()
+    for fn in list(_local_listeners):   # 같은 PC 안에서 바뀐 걸 알려 준다 (Firebase 스트림 대신)
+        try:
+            fn(path)
+        except Exception:
+            pass
+
+
+_local_listeners = []
+
+
 def get(path: str):
+    if is_local():
+        return _local("get", path)
     trace.cmd(f"HTTP GET {_url(path)}")
     r = _client.get(_url(path))
     r.raise_for_status()
@@ -48,16 +125,22 @@ def get(path: str):
 
 
 def put(path: str, value):
+    if is_local():
+        return _local("put", path, value)
     trace.cmd(f"HTTP PUT {_url(path)}")
     _client.put(_url(path), json=value).raise_for_status()
 
 
 def patch(path: str, value: dict):
+    if is_local():
+        return _local("patch", path, value)
     trace.cmd(f"HTTP PATCH {_url(path)}")
     _client.patch(_url(path), json=value).raise_for_status()
 
 
 def post(path: str, value) -> str:
+    if is_local():
+        return _local("post", path, value)
     trace.cmd(f"HTTP POST {_url(path)}")
     r = _client.post(_url(path), json=value)
     r.raise_for_status()
@@ -65,6 +148,8 @@ def post(path: str, value) -> str:
 
 
 def delete(path: str):
+    if is_local():
+        return _local("delete", path)
     trace.cmd(f"HTTP DELETE {_url(path)}")
     _client.delete(_url(path)).raise_for_status()
 
@@ -125,6 +210,10 @@ def add_message(cid: str, role: str, text: str, steps: list | None = None, meta:
 
 def listen(on_settings, on_conversations, on_memos=None):
     """/purplu 아래가 바뀔 때마다 on_settings(dict) / on_conversations() 를 부른다. 끊기면 다시 붙는다."""
+    if is_local():
+        _local_listeners.append(lambda path: _dispatch({"path": "/" + path.strip("/")}, on_settings, on_conversations, on_memos))
+        return
+
     def run():
         backoff = 1
         while True:

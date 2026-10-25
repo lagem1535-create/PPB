@@ -3,11 +3,14 @@
 명령마다 PowerShell 을 새로 띄우고, 'cd' 로 옮긴 폴더는 기억해서 다음 명령에 이어 준다.
 퍼플루가 run_command 로 실행한 명령도 여기에 보인다.
 """
+import os
+
 from PySide6.QtCore import QProcess, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QPainter, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
 
 MARK = "@@PURPLU_CWD@@"
+CURRENT_CWD = [os.path.expanduser("~")]   # 지금 고른 터미널 탭의 폴더 (터미널 에이전트가 여기서 일한다)
 BANNER = "Windows PowerShell\nCopyright (C) Microsoft Corporation. All rights reserved.\n\n"
 MONO = "font-family:'Cascadia Mono','Consolas','D2Coding'; font-size:10pt;"
 
@@ -137,6 +140,7 @@ class Session(QWidget):
         self.con.ensureCursorVisible()
 
     def _prompt(self):
+        CURRENT_CWD[0] = self.cwd
         self._write(f"PS {self.cwd}> ")
         self.con.start = len(self.con.toPlainText())
         self.con.busy = False
@@ -207,6 +211,30 @@ class Session(QWidget):
             self.proc.kill()
             self.proc = None
 
+    # ---- 터미널 에이전트 (한 줄씩 흘려 보이기) ----
+    def ext(self, kind: str, data: str):
+        if kind == "start":
+            self._ext_typed = "" if self.con.busy else self.con._input()
+            if not self.con.busy:   # 지금 프롬프트 줄을 지우고
+                text = self.con.toPlainText()
+                cur = self.con.textCursor()
+                cur.setPosition(text.rfind("\n", 0, self.con.start) + 1)
+                cur.movePosition(QTextCursor.End, QTextCursor.KeepAnchor)
+                cur.removeSelectedText()
+            self.con.busy = True
+            cmd, _, note = data.partition("    # ")
+            self._write(f"PS {self.cwd}> ")
+            self._write(cmd, self.t.accent)
+            self._write(f"    # {note}\n" if note else "\n", self.c["dim"])
+        elif kind == "line":
+            self._write(data + "\n")
+        elif kind == "end":
+            if str(data) not in ("0", ""):
+                self._write(f"(끝: 코드 {data})\n", "#DC2626")
+            self._write("\n")
+            self._prompt()
+            self._write(getattr(self, "_ext_typed", ""))
+
     # ---- 퍼플루가 실행한 명령 ----
     def show_purplu(self, cmd: str, output: str, code: int):
         """치던 줄은 그대로 두고, 그 위에 퍼플루가 실행한 명령과 결과를 끼워 넣는다."""
@@ -231,6 +259,7 @@ class Session(QWidget):
 class Terminal(QWidget):
     """머리줄: [터미널] [터미널 2] … +            ⋮ ⤢ ✕  /  아래: 고른 탭의 글 칸."""
     purplu_ran = Signal(str, str, int)   # 퍼플루가 실행한 명령 (다른 스레드 → 화면 스레드)
+    agent_event = Signal(str, str)       # 터미널 에이전트: start · line · end
     close_clicked = Signal()
     expand_clicked = Signal()
 
@@ -264,6 +293,7 @@ class Terminal(QWidget):
         v.addLayout(head)
         v.addWidget(self.stack, 1)
         self.purplu_ran.connect(self._show_purplu)
+        self.agent_event.connect(lambda k, d: self.cur.ext(k, d))
         self.apply_colors(colors, accent)
         self.new_session()
 
@@ -328,6 +358,7 @@ class Terminal(QWidget):
 
     def _switch(self, s):
         self.stack.setCurrentWidget(s)
+        CURRENT_CWD[0] = s.cwd
         self._tabs()
         s.focus()
 

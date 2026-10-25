@@ -42,6 +42,8 @@ def make_code(with_keys: bool) -> str:
 def read_code(text: str) -> dict:
     """연결 코드 또는 Firebase 주소를 받아 {"fb":…, "keys":{…}} 로."""
     t = (text or "").strip()
+    if not t or t.lower() == "local":   # 비우면 이 PC에만 저장 (Firebase 없이)
+        return {"fb": "local", "keys": {}}
     if t.startswith("https://") and "firebase" in t:
         return {"fb": t.rstrip("/"), "keys": {}}
     if t.upper().startswith("PURPLU-"):

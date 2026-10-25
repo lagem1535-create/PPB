@@ -42,6 +42,9 @@ def model_info(mid: str):
             return (cid, name, desc, True)
     if mid and mid.startswith(OPENAI_PREFIX):
         return (mid, mid[len(OPENAI_PREFIX):].replace("gpt-", "GPT-"), "OpenAI", True)
+    from .cli_agents import AGENTS, PREFIX as CLI
+    if mid and mid.startswith(CLI) and mid[len(CLI):] in AGENTS:
+        return (mid, AGENTS[mid[len(CLI):]]["name"] + " (터미널)", "터미널에서 일하는 에이전트", False)
     return TEXT_MODELS[0]
 
 
@@ -78,6 +81,8 @@ class TextChat:
         b.emit("heard", b._turn_user)
         b.emit("state", "thinking")
         from .providers import OPENAI_PREFIX
+        if mid.startswith("cli:"):   # 터미널 에이전트 (Claude Code · Codex · Copilot · Antigravity)
+            return await self._cli(mid[4:], text)
         if mid.startswith("claude-") or mid.startswith(OPENAI_PREFIX):   # Claude · GPT
             return await self._other(mid, effort, text, image, mime, s)
         key = config.get_api_key()
@@ -182,6 +187,44 @@ class TextChat:
                 b._flush_turn()
                 b.emit("state", "idle")
                 self.task = None
+
+    async def _cli(self, agent, text):
+        """터미널 에이전트를 지금 터미널 폴더에서 한 번 실행. 같은 대화에서 다시 물으면 이어서."""
+        from . import cli_agents, terminal
+        b = self.b
+        cid = config.settings().get("current_conversation") or "temp"
+        cont = getattr(self, "_cli_last", None) == (agent, cid)
+        cwd = terminal.CURRENT_CWD[0]
+        name = cli_agents.AGENTS[agent]["name"]
+        label = f"{name}(터미널)에서 하는 중…"
+        call = cli_agents.pretty(cli_agents.command(agent, text, cont))
+        b.emit("step", {"label": label, "call": call, "done": False})
+        b.emit("state", "acting")
+        t0 = time.time()
+        code, out = -1, ""
+        try:
+            def line(t):
+                b._turn_model += t + "\n"
+                b.emit("reply", t + "\n")
+            code, out = await cli_agents.run(agent, text, cont, cwd, line)
+            self._cli_last = (agent, cid)
+        except asyncio.CancelledError:
+            b._turn_model = (b._turn_model + " (멈춤)").strip()
+        except Exception as e:
+            b.emit("error", f"{name} 실행 실패: {str(e)[:200]}")
+        finally:
+            last = next((x for x in reversed(out.splitlines()) if x.strip()), "")
+            done = {"label": label, "call": call, "done": True, "ok": code == 0,
+                    "result": (last[:70] or "끝") if code == 0 else f"끝 코드 {code}", "secs": round(time.time() - t0, 1)}
+            b.emit("step", done)
+            b._turn_steps = getattr(b, "_turn_steps", []) + [{k: done[k] for k in ("call", "ok", "result", "secs")}]
+            b._turn_meta["note"] = f"폴더: {cwd}"
+            b._turn_meta["secs"] = round(time.time() - b._turn_meta.pop("t0", time.time()), 1)
+            b.emit("meta", dict(b._turn_meta))
+            b._cid = config.settings().get("current_conversation") or getattr(b, "_cid", None)
+            b._flush_turn()
+            b.emit("state", "idle")
+            self.task = None
 
     async def _gemini_fallback(self, text, image, mime):
         """Claude·GPT 가 바쁠 때 Gemini 가벼운 모델로 한 번 (도구 없이 짧게)."""

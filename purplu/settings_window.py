@@ -668,6 +668,23 @@ class SettingsWindow(QWidget):
         self.pages_edit.setPlaceholderText("https://내아이디.github.io/PPB/")
         self.pages_edit.editingFinished.connect(lambda: (config.save_settings(pages_url=self.pages_edit.text().strip()), self._flash()))
         row(v, "웹 주소 (GitHub Pages)", "이 주소에서 연 화면만 PC에 연결돼요", self.pages_edit, wide=True)
+        from . import install, store
+        local = store.is_local()
+        code_row = QHBoxLayout()
+        b1 = QPushButton("코드 복사", objectName="plain")
+        b2 = QPushButton("키도 같이 복사", objectName="plain")
+        b1.clicked.connect(lambda: self._copy_code(False))
+        b2.clicked.connect(lambda: self._copy_code(True))
+        for b in (b1, b2):
+            b.setEnabled(not local)
+            code_row.addWidget(b)
+        row(v, "다른 PC 연결 코드",
+            ("지금은 '이 PC에만' 저장이라 다른 PC와 같이 쓸 수 없어요. 같이 쓰려면 Firebase 주소가 필요해요 (USE.md 참고)." if local else
+             "새 PC의 '퍼플루 시작하기' 창에 붙여 넣으면 대화·설정·메모가 모두 같아져요. '키도 같이'는 키까지 넘어가니 남에게 보여 주지 마세요."),
+            code_row, wide=True)
+        sc = QPushButton("바로가기 다시 만들기", objectName="plain")
+        sc.clicked.connect(lambda: (install.make_shortcuts(), self._flash("✓ 바탕화면·시작 메뉴에 만들었어요")))
+        row(v, "퍼플루 바로가기", "바탕화면·시작 메뉴 (퍼플루 아이콘)", sc)
 
         self.saved_label = QLabel()
         self.saved_label.setObjectName("saved")
@@ -832,6 +849,12 @@ class SettingsWindow(QWidget):
             config.set_api_key(key)
             self.brain.sleep()
             self.key_label.setText("✓ 저장됨")
+
+    def _copy_code(self, with_keys: bool):
+        from PySide6.QtGui import QGuiApplication
+        from . import install
+        QGuiApplication.clipboard().setText(install.make_code(with_keys))
+        self._flash("✓ 연결 코드를 복사했어요" + (" (키 포함 · 남에게 보여 주지 마세요)" if with_keys else ""))
 
     def _ask_other_key(self, provider, title):
         key, ok = QInputDialog.getText(self, title, f"{title.replace(' (선택)', '')}를 붙여 넣으세요 (비우고 확인하면 지워요):",
