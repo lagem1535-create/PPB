@@ -7,7 +7,7 @@ from datetime import datetime
 
 from PySide6.QtCore import QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
+from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QFormLayout, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
                                QFrame, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSlider, QTabWidget,
                                QPlainTextEdit, QTextBrowser, QVBoxLayout, QWidget)
 
@@ -135,6 +135,7 @@ class SettingsWindow(QWidget):
         tabs.addTab(self._memo_tab(), "📝 메모")
         tabs.addTab(self._voice_tab(), "🔊 목소리")
         tabs.addTab(self._skills_tab(), "🧩 스킬")
+        tabs.addTab(self._models_tab(), "🤖 모델")
         tabs.addTab(self._mcp_tab(), "🔌 MCP")
         tabs.addTab(self._settings_tab(), "⚙ 설정")
         tabs.addTab(self._tablet_tab(), "📱 갤럭시 탭")
@@ -156,6 +157,7 @@ class SettingsWindow(QWidget):
         self.refresh_memos()
         self.refresh_skills()
         self.refresh_mcp()
+        self.refresh_models()
         self._refresh_tablet()
         self.show()
         self.raise_()
@@ -849,6 +851,113 @@ class SettingsWindow(QWidget):
             config.set_api_key(key)
             self.brain.sleep()
             self.key_label.setText("✓ 저장됨")
+
+    # ---- 모델 관리 탭 ----
+
+    def _models_tab(self):
+        """회사별 카드: 키 · 터미널 에이전트 연동 · (Ollama) 상태 · 모델마다 '메뉴에 보이기'."""
+        from .model_ui import CliConnector
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
+        self.models_page = QWidget()
+        self.models_page.setObjectName("setpage")
+        self.models_lay = QVBoxLayout(self.models_page)
+        self.models_lay.setContentsMargins(16, 12, 16, 16)
+        self.models_lay.setSpacing(12)
+        area.setWidget(self.models_page)
+        self.cli_conn = CliConnector(self, on_connected=lambda _a: self.refresh_models(), on_progress=self._flash)
+        return area
+
+    def refresh_models(self):
+        from . import cli_agents, providers
+        from .model_ui import GROUPS, catalog
+        lay = self.models_lay
+        while lay.count():
+            it = lay.takeAt(0)
+            if it.widget():
+                it.widget().hide()
+                it.widget().setParent(None)
+                it.widget().deleteLater()
+        light = config.settings().get("theme") == "light"
+        dim = "#71717A" if light else "#A1A1AA"
+        hidden = set(config.settings().get("hidden_models") or [])
+        full = {g["id"]: g for g in catalog(include_hidden=True)}   # 숨긴 모델도 보여야 다시 켤 수 있다
+        tip = QLabel("말(목소리)은 늘 Gemini 라이브예요. 글 대화는 여기서 켠 모델 중에서 대화창의 모델 이름 ▾ 로 골라요.")
+        tip.setObjectName("rdesc")
+        tip.setWordWrap(True)
+        lay.addWidget(tip)
+        for gid, gname, color, key, agent in GROUPS:
+            g = full[gid]
+            head = QLabel(f"<span style='color:{color}'>●</span>  <b style='color:{color}'>{gname}</b>")
+            head.setObjectName("cardtitle")
+            lay.addWidget(head)
+            box = QFrame()
+            box.setObjectName("card")
+            v = QVBoxLayout(box)
+            v.setContentsMargins(14, 8, 14, 10)
+            v.setSpacing(6)
+
+            def line(title, status, btn_text=None, fn=None):
+                r = QHBoxLayout()
+                t = QLabel(f"<b>{title}</b>  <span style='color:{dim};font-size:9pt'>{status}</span>")
+                r.addWidget(t, 1)
+                if btn_text:
+                    b = QPushButton(btn_text, objectName="plain")
+                    b.clicked.connect(fn)
+                    r.addWidget(b)
+                v.addLayout(r)
+            if key:
+                titles = {"gemini": "Gemini 키", "openai": "OpenAI 키", "anthropic": "Claude 키"}
+                line(titles[key], "✓ 저장됨" if config.get_key(key) else "없음",
+                     "키 입력/변경", lambda _=False, k=key, t=titles[key]: (self._ask_model_key(k, t)))
+            if agent:
+                info = cli_agents.AGENTS[agent]
+                ok = agent in cli_agents.connected()
+                path = cli_agents.find(agent)
+                st = "✓ 연동됨 (터미널)" if ok else ("설치됨 · 연동 안 됨" if path else "설치 안 됨")
+                line(info["name"], st, "다시 확인" if ok else "터미널로 연동", lambda _=False, a=agent: self.cli_conn.start(a))
+            if gid == "ollama":
+                stt = providers.ollama_status(fresh=True)
+                st = ("✓ 켜져 있어요" if stt["running"] else ("설치됨 · 꺼져 있어요 (Ollama 를 켜 주세요)" if stt["installed"]
+                                                              else "설치 안 됨 · ollama.com 에서 설치"))
+                line("Ollama", st, "새로고침", lambda: self.refresh_models())
+                if stt["running"]:
+                    hint = QLabel("이 PC에 깔린 모델만 보여요 (클라우드 모델 제외). 새 모델은 터미널에서: ollama pull 모델이름")
+                    hint.setObjectName("rdesc")
+                    hint.setWordWrap(True)
+                    v.addWidget(hint)
+            api = [it for it in g["items"] if it["kind"] in ("api", "local") and (it["ready"] or it["kind"] == "local")]
+            if api:
+                sub = QLabel("메뉴에 보이기")
+                sub.setObjectName("rdesc")
+                v.addWidget(sub)
+                grid = QGridLayout()
+                grid.setHorizontalSpacing(18)
+                grid.setVerticalSpacing(4)
+                for n, it in enumerate(api):   # 두 줄로 나란히
+                    cb = QCheckBox(it["name"])
+                    cb.setChecked(it["mid"] not in hidden)
+                    cb.toggled.connect(lambda on, m=it["mid"]: self._toggle_model(m, on))
+                    grid.addWidget(cb, n // 2, n % 2)
+                grid.setColumnStretch(2, 1)
+                v.addLayout(grid)
+            lay.addWidget(box)
+        lay.addStretch(1)
+
+    def _toggle_model(self, mid, on):
+        hidden = [m for m in (config.settings().get("hidden_models") or []) if m != mid]
+        if not on:
+            hidden.append(mid)
+        config.save_settings(hidden_models=hidden)
+        self._flash()
+
+    def _ask_model_key(self, provider, title):
+        if provider == "gemini":
+            self._ask_key()
+        else:
+            self._ask_other_key(provider, title)
+        self.refresh_models()
 
     def _copy_code(self, with_keys: bool):
         from PySide6.QtGui import QGuiApplication

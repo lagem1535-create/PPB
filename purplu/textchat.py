@@ -42,6 +42,10 @@ def model_info(mid: str):
             return (cid, name, desc, True)
     if mid and mid.startswith(OPENAI_PREFIX):
         return (mid, mid[len(OPENAI_PREFIX):].replace("gpt-", "GPT-"), "OpenAI", True)
+    if mid and mid.startswith("ollama:"):
+        from .providers import ollama_status
+        m = next((x for x in ollama_status()["models"] if x[0] == mid), None)
+        return (mid, mid[7:], (m[2] if m else "Ollama (꺼져 있음)"), bool(m and m[4]))
     from .cli_agents import AGENTS, PREFIX as CLI
     if mid and mid.startswith(CLI) and mid[len(CLI):] in AGENTS:
         return (mid, AGENTS[mid[len(CLI):]]["name"] + " (터미널)", "터미널에서 일하는 에이전트", False)
@@ -83,7 +87,7 @@ class TextChat:
         from .providers import OPENAI_PREFIX
         if mid.startswith("cli:"):   # 터미널 에이전트 (Claude Code · Codex · Copilot · Antigravity)
             return await self._cli(mid[4:], text)
-        if mid.startswith("claude-") or mid.startswith(OPENAI_PREFIX):   # Claude · GPT
+        if mid.startswith("claude-") or mid.startswith(OPENAI_PREFIX) or mid.startswith("ollama:"):   # Claude · GPT · Ollama
             return await self._other(mid, effort, text, image, mime, s)
         key = config.get_api_key()
         if not key:
@@ -165,7 +169,8 @@ class TextChat:
         b = self.b
         rows = await self._rows()
         system = brain_mod.system_prompt() + "\n- 지금은 글 대화야. 글로 읽기 좋게, 필요하면 줄을 나눠 답해."
-        turn = providers.claude_turn if mid.startswith("claude-") else providers.openai_turn
+        turn = (providers.claude_turn if mid.startswith("claude-") else
+                providers.ollama_turn if mid.startswith("ollama:") else providers.openai_turn)
         try:
             await turn(b, mid, effort, rows, text, image, mime, system, s["computer_control"])
         except asyncio.CancelledError:

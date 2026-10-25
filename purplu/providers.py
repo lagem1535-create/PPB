@@ -218,3 +218,91 @@ async def openai_turn(b, mid, effort, rows, text, image, mime, system, computer_
         for i, why in bad.items():
             messages.append({"role": "tool", "tool_call_id": i, "content": why})
         b.emit("state", "thinking")
+
+
+# ---------------- Ollama (이 PC에 깔린 모델만, 클라우드 모델은 빼고) ----------------
+OLLAMA_PREFIX = "ollama:"
+OLLAMA_URL = "http://127.0.0.1:11434"
+
+
+_ollama_cache = [0.0, None]
+
+
+def ollama_status(fresh: bool = False) -> dict:
+    """{"running", "installed", "models": [(id, 이름, 설명, 도구, 생각, 그림)]}. 메뉴가 느려지지 않게 20초 기억."""
+    if not fresh and _ollama_cache[1] is not None and time.time() - _ollama_cache[0] < 20:
+        return _ollama_cache[1]
+    _ollama_cache[1] = _ollama_status()
+    _ollama_cache[0] = time.time()
+    return _ollama_cache[1]
+
+
+def _ollama_status() -> dict:
+    import shutil
+    import httpx
+    out = {"running": False, "installed": bool(shutil.which("ollama")), "models": []}
+    try:
+        tags = httpx.get(f"{OLLAMA_URL}/api/tags", timeout=1.5).json()
+    except Exception:
+        return out
+    out["running"] = out["installed"] = True
+    for m in tags.get("models", []):
+        name = m.get("name") or m.get("model") or ""
+        if m.get("remote_host") or m.get("remote_model") or name.endswith("-cloud") or ":cloud" in name:
+            continue   # 클라우드 모델은 빼기 (깔린 것만)
+        d = m.get("details") or {}
+        caps = m.get("capabilities") or []
+        desc = " · ".join(x for x in (d.get("parameter_size"), "도구 됨" if "tools" in caps else "", "그림 됨" if "vision" in caps else "") if x)
+        out["models"].append((OLLAMA_PREFIX + name, name, desc or "이 PC", "tools" in caps, "thinking" in caps, "vision" in caps))
+    return out
+
+
+async def ollama_turn(b, mid, effort, rows, text, image, mime, system, computer_control):
+    import httpx
+    name = mid[len(OLLAMA_PREFIX):]
+    info = next((m for m in ollama_status()["models"] if m[0] == mid), None)
+    if not info:
+        raise RuntimeError("Ollama 가 꺼져 있거나 그 모델이 없어요. Ollama 를 켜 주세요.")
+    _id, _n, _d, can_tools, can_think, can_see = info
+    if not can_tools:   # 도구를 못 쓰는 작은 모델: 긴 도구 설명 대신 짧게 (훨씬 빨라진다)
+        system = ("너는 '퍼플루'야. 사용자의 PC에 사는 귀여운 보라색 AI 친구야. 항상 한국어 반말로, 친근하고 짧게 대답해. "
+                  "모르는 건 지어내지 말고 모른다고 말해.")
+    messages = [{"role": "system", "content": system}] + _rows_to_messages(rows)
+    user = {"role": "user", "content": text or "이 그림 봐 줘"}
+    if image and can_see and (mime or "").startswith("image/"):
+        user["images"] = [base64.b64encode(image).decode()]
+    messages.append(user)
+    tools = ([{"type": "function", "function": {"name": n, "description": d[:1000], "parameters": sch}}
+              for n, d, sch in tool_specs(computer_control)] if can_tools else None)
+    async with httpx.AsyncClient(timeout=httpx.Timeout(600, connect=5)) as client:
+        for _round in range(40):
+            body = {"model": name, "messages": messages, "stream": True}
+            if tools:
+                body["tools"] = tools
+            if can_think:
+                body["think"] = effort in ("high", "max") or None
+            calls, content = [], ""
+            async with client.stream("POST", f"{OLLAMA_URL}/api/chat", json=body) as r:
+                if r.status_code >= 400:
+                    raise RuntimeError(f"Ollama 오류 {r.status_code}: {(await r.aread()).decode('utf-8', 'replace')[:200]}")
+                async for line in r.aiter_lines():
+                    if not line.strip():
+                        continue
+                    msg = json.loads(line).get("message") or {}
+                    if msg.get("thinking"):
+                        b.emit("thought", msg["thinking"])
+                    if msg.get("content"):
+                        content += msg["content"]
+                        b._turn_model += msg["content"]
+                        b.emit("reply", msg["content"])
+                    for tc in msg.get("tool_calls") or []:
+                        calls.append(tc)
+            if not calls:
+                return
+            messages.append({"role": "assistant", "content": content, "tool_calls": calls})
+            run = [SimpleNamespace(name=tc["function"]["name"], args=tc["function"].get("arguments") or {}, id=str(i))
+                   for i, tc in enumerate(calls)]
+            responses, _imgs = await b.run_tool_calls(run)
+            for r_ in responses:
+                messages.append({"role": "tool", "content": _result_text(r_), "tool_name": r_.name})
+            b.emit("state", "thinking")

@@ -56,7 +56,8 @@ DEFAULTS = {
     "face_eyes": "basic", "face_hat": "none", "face_antenna": "none",   # 퍼플루 꾸미기 (/custom)
     "face_extra": "none", "face_hat_color": "",
     "text_model": "gemini-3.8-flash",                  # 글 대화 모델 ("live" = 말과 같은 라이브, "cli:claude" = 터미널 에이전트)
-    "cli_agents": [],                                  # 연동한 터미널 에이전트 (claude · codex · copilot · antigravity)
+    "cli_agents": [],
+    "hidden_models": [],                               # 모델 창에서 숨긴 모델 (설정 > 모델 관리)                                  # 연동한 터미널 에이전트 (claude · codex · copilot · antigravity)
     "effort": "medium",                                # 노력 정도 (생각하는 글 모델): low·medium·high·max
     "pc_top_hidden": False,                            # 대화창 위 칸(퍼플루·브라우저·터미널) 숨기기
     "pc_split_face": 0.34, "pc_split_tool": 0.6,       # 위 칸 높이 (끌어서 바꾼 것을 기억)

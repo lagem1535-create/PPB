@@ -357,8 +357,8 @@ class EffortBar(QWidget):
 
 class ModelPopup(QFrame):
     """모델 이름 단추를 누르면 뜨는 작은 창 (Claude 의 모델 고르기처럼).
-    첫 장: 모델 4개(✓·1~4) · 노력 › · 더 많은 모델 › · (라이브를 골랐을 때만) 말 모델 빠른/생각하는.
-    '노력 ›' · '더 많은 모델 ›' 을 누르면 같은 창 안에서 그 장으로 넘어간다 (‹ 로 돌아오기)."""
+    회사별 묶음 (● Gemini · GPT · Claude · Ollama · 그외, 눌러서 접기/펴기) → 노력 › → (라이브면) 말 모델 → 모델 관리 ›.
+    '노력 ›' 은 같은 창 안에서 그 장으로 넘어간다 (〈 로 돌아오기)."""
 
     def __init__(self, owner):
         super().__init__(owner, Qt.Popup)
@@ -392,17 +392,22 @@ class ModelPopup(QFrame):
         lab.setStyleSheet(f"color:{pal()['dim']}; font-size:{'8.5pt' if small else '9pt'}; padding:6px 12px 4px; background:transparent;")
         self.v.addWidget(lab)
 
-    def _row(self, left, right="", fn=None, on=False, badge="", color=None):
+    def _row(self, left, right="", fn=None, on=False, badge="", color=None, indent=False, sub=""):
         P = pal()
         b = QPushButton()
         b.setCursor(Qt.PointingHandCursor)
-        b.setFixedHeight(38)
+        b.setFixedHeight(34 if indent else 38)
         h = QHBoxLayout(b)
-        h.setContentsMargins(12, 0, 12, 0)
+        h.setContentsMargins(34 if indent else 12, 0, 12, 0)
         h.setSpacing(6)
         name = QLabel(left)
-        name.setStyleSheet(f"color:{color or P['text']}; font-size:10.5pt; background:transparent;")
+        name.setStyleSheet(f"color:{color or P['text']}; font-size:{'10pt' if indent else '10.5pt'}; background:transparent;")
         h.addWidget(name)
+        if sub:   # 터미널 · 이 PC 같은 작은 꼬리표
+            sb = QLabel(sub)
+            sb.setStyleSheet(f"color:{P['dim']}; background:{P['card']}; border-radius:5px; padding:0 6px; font-size:8pt;")
+            sb.setFixedHeight(18)
+            h.addWidget(sb, 0, Qt.AlignVCenter)
         if badge:
             bd = QLabel(badge)
             warn = False
@@ -422,7 +427,7 @@ class ModelPopup(QFrame):
         return b
 
     def build(self):
-        from .textchat import EFFORTS, MAIN_MODELS, TEXT_MODELS, model_info
+        from .textchat import EFFORTS, model_info
         self._clear()
         P = pal()
         self.setStyleSheet(f"QFrame#modelpop {{ background:{P['bg']}; border:1px solid {P['line']}; border-radius:14px; }}")
@@ -436,54 +441,82 @@ class ModelPopup(QFrame):
             bar.changed.connect(lambda e, bar=bar, before=eff: self._pick_effort(e, bar, before))
             self.v.addWidget(bar)
             self.v.addSpacing(6)
-        elif self.page == "more":
-            from .providers import CLAUDE_MODELS, openai_models
-            self._row("〈  더 많은 모델", fn=lambda: self._go("main"))
-            self._label("Gemini")
-            for mid, name, desc, _t in TEXT_MODELS[MAIN_MODELS:]:
-                self._row(name, desc if mid != cur else "", fn=lambda _=False, m=mid: self._set(text_model=m), on=mid == cur)
-            self._label("Claude")
-            if config.get_key("anthropic"):
-                for mid, name, desc in CLAUDE_MODELS:
-                    self._row(name, desc if mid != cur else "", fn=lambda _=False, m=mid: self._set(text_model=m), on=mid == cur)
-            else:
-                self._row("Claude 키 넣기", "설정 ›", fn=lambda: (self.close(), self.owner.open_settings("설정")))
-            from .cli_agents import AGENTS, connected
-            self._label("터미널 에이전트")
-            done = connected()
-            for aid, info in AGENTS.items():
-                mid = "cli:" + aid
-                if aid in done:
-                    self._row(info["name"], "", fn=lambda _=False, m=mid: self._set(text_model=m), on=mid == cur)
-                else:
-                    self._row(info["name"], "터미널로 연동 ›", fn=lambda _=False, a=aid: (self.close(), self.owner._cli_connect(a)))
-            self._label("GPT")
-            gpts = openai_models() if config.get_key("openai") else []
-            if gpts:
-                for mid, name, desc in gpts:
-                    self._row(name, fn=lambda _=False, m=mid: self._set(text_model=m), on=mid == cur)
-            else:
-                self._row("OpenAI 키 넣기" if not config.get_key("openai") else "GPT 모델을 못 불러왔어요",
-                          "설정 ›", fn=lambda: (self.close(), self.owner.open_settings("설정")))
         else:
-            for n, (mid, name, _d, _t) in enumerate(TEXT_MODELS[:MAIN_MODELS], 1):
-                self._row(name, str(n), fn=lambda _=False, m=mid: self._set(text_model=m), on=mid == cur)
-            if cur not in [m[0] for m in TEXT_MODELS[:MAIN_MODELS]]:   # 더 많은 모델(Claude·GPT 포함)에서 고른 것도 위에 보이게
-                self._row(model_info(cur)[1], on=True)
+            from .model_ui import catalog
+            opened = self.owner.__dict__.setdefault("_model_groups_open", set())
+            groups = catalog()
+            if not opened:   # 처음엔 지금 고른 모델이 든 묶음만 펼친다
+                opened.update(g["id"] for g in groups if any(it["mid"] == cur for it in g["items"]))
+            for g in groups:
+                is_open = g["id"] in opened
+                has_cur = any(it["mid"] == cur for it in g["items"])
+                self._group_row(g, is_open, has_cur)
+                if not is_open:
+                    continue
+                if g["key"] and not g["has_key"]:
+                    self._row(f"{g['name']} 키 넣기", "모델 관리 ›", fn=self._open_manage, indent=True)
+                elif g["id"] == "ollama" and not g["items"]:
+                    self._row("깔린 모델이 없어요 (Ollama 를 켜 주세요)", "›", fn=self._open_manage, indent=True)
+                for it in g["items"]:
+                    if it["kind"] == "api" and not it["ready"]:
+                        continue   # 키가 없는 API 모델은 '키 넣기' 한 줄로
+                    if it["kind"] == "cli" and not it["ready"]:
+                        self._row(it["name"], "연동 ›", indent=True, sub="터미널",
+                                  fn=lambda _=False, a=it["agent"]: (self.close(), self.owner._cli_connect(a)))
+                    else:
+                        self._row(it["name"], fn=lambda _=False, m=it["mid"]: self._set(text_model=m), on=it["mid"] == cur,
+                                  indent=True, sub={"cli": "터미널", "local": "이 PC"}.get(it["kind"], ""))
             self._sep()
             if model_info(cur)[3]:   # 생각하는 모델에서만 노력
                 self._row("노력", dict(EFFORTS).get(s.get("effort") or "medium", "") + "  ›", fn=lambda: self._go("effort"))
-            self._row("더 많은 모델", "›", fn=lambda: self._go("more"))
             if cur == "live":   # 라이브를 골랐을 때만: 말 모델
-                self._sep()
                 self._label("라이브 모델")
                 for mid, name in MODELS.items():
                     self._row(name.replace("⚡ ", "").replace("🧠 ", ""), fn=lambda _=False, m=mid: self._set(live_model=m),
-                              on=mid == s.get("live_model"))
+                              on=mid == s.get("live_model"), indent=True)
+            self._row("모델 관리", "›", fn=self._open_manage)
         self.setMinimumHeight(0)
         self.setMaximumHeight(16777215)
         self._fit()
         QTimer.singleShot(0, self._fit)   # 새 줄들이 자리 잡은 뒤 한 번 더
+
+    def _group_row(self, g, is_open, has_cur):
+        """묶음 머리줄: ● Gemini ⌄ (누르면 접기/펴기). 접혀 있어도 지금 고른 모델이 들어 있으면 ✓."""
+        P = pal()
+        b = QPushButton()
+        b.setCursor(Qt.PointingHandCursor)
+        b.setFixedHeight(36)
+        h = QHBoxLayout(b)
+        h.setContentsMargins(12, 0, 12, 0)
+        h.setSpacing(8)
+        dot = QLabel()
+        dot.setFixedSize(9, 9)
+        dot.setStyleSheet(f"background:{g['color']}; border-radius:4px;")
+        h.addWidget(dot)
+        name = QLabel(g["name"])
+        name.setStyleSheet(f"color:{g['color']}; font-weight:700; font-size:10.5pt; background:transparent;")
+        h.addWidget(name)
+        arrow = QLabel("⌄" if is_open else "›")
+        arrow.setStyleSheet(f"color:{P['dim']}; font-size:{'11pt' if is_open else '12pt'}; background:transparent;")
+        h.addWidget(arrow)
+        h.addStretch(1)
+        if has_cur and not is_open:
+            ck = QLabel("✓")
+            ck.setStyleSheet(f"color:{self.owner._cc}; font-weight:800; background:transparent;")
+            h.addWidget(ck)
+        b.setStyleSheet(f"QPushButton {{ background:transparent; border:none; border-radius:8px; }}"
+                        f"QPushButton:hover {{ background:{P['card']}; }}")
+        b.clicked.connect(lambda: self._toggle_group(g["id"]))
+        self.v.addWidget(b)
+
+    def _toggle_group(self, gid):
+        opened = self.owner.__dict__.setdefault("_model_groups_open", set())
+        opened.symmetric_difference_update({gid})
+        self.build()
+
+    def _open_manage(self):
+        self.close()
+        self.owner.open_settings("모델")
 
     def _fit(self):
         """창 높이를 내용에 딱 맞게 (예전 장의 높이가 남아 빈 칸이 생기던 것)."""
@@ -524,10 +557,7 @@ class ModelPopup(QFrame):
         self.build()
 
     def keyPressEvent(self, e):
-        from .textchat import MAIN_MODELS, TEXT_MODELS
         k = e.key()
-        if self.page == "main" and Qt.Key_1 <= k < Qt.Key_1 + MAIN_MODELS:
-            return self._set(text_model=TEXT_MODELS[k - Qt.Key_1][0])
         if k in (Qt.Key_Left, Qt.Key_Backspace) and self.page != "main":
             return self._go("main")
         super().keyPressEvent(e)
