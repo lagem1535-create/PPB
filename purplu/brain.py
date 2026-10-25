@@ -394,7 +394,7 @@ class Brain:
         key = config.get_api_key()
         if not key:
             if not quiet:
-                self.emit("error", "Gemini 키가 없어요. 퍼플루를 우클릭 → 설정에서 키를 넣어 주세요.")
+                self.emit("error", "목소리 대화는 Gemini 키가 있어야 해요. 글로는 지금도 대화할 수 있어요 (설정 > 기본에서 Gemini 키를 넣으면 목소리도 돼요).")
             return False
         connected = asyncio.get_running_loop().create_future()
         self._connecting = connected
