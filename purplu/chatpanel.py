@@ -114,7 +114,7 @@ def glow_colors() -> list[str]:
     s = config.settings()
     if s.get("chat_glow") in GLOWS:
         return GLOWS[s["chat_glow"]]
-    base = QColor(s.get("chat_color") or s.get("color") or "#3B82F6")
+    base = QColor(s.get("chat_color") or s.get("color") or "#8B5CF6")
     h, sat, v, _a = base.getHsv()
     near = lambda dh, dv=0: QColor.fromHsv((h + dh) % 360, sat, max(0, min(255, v + dv))).name()   # noqa: E731
     return [base.name(), near(28, 10), base.lighter(135).name(), near(-28, -10)]
@@ -842,7 +842,7 @@ class IconButton(QPushButton):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         P = pal()
-        accent = QColor(config.settings().get("chat_color") or config.settings().get("color") or "#3B82F6")
+        accent = QColor(config.settings().get("chat_color") or config.settings().get("color") or "#8B5CF6")
         if self._hover or self.active:
             bg = QColor(accent if self.active else P["bubble"])
             if self.active:
@@ -1296,7 +1296,7 @@ class ChatPanel(QWidget):
     # ---------------- 모양 ----------------
     def apply_theme(self):
         s, P = config.settings(), pal()
-        c = s.get("color") or "#3B82F6"
+        c = s.get("color") or "#8B5CF6"
         cc = s.get("chat_color") or c
         self._cc = cc
         if hasattr(self, "b_hurry"):

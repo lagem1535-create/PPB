@@ -37,7 +37,7 @@ class PurpluDialog(QDialog):
         self.result_value = None
         self._drag = None
         P = _pal()
-        accent = DANGER if danger else (config.settings().get("color") or "#3B82F6")
+        accent = DANGER if danger else (config.settings().get("color") or "#8B5CF6")
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(18, 14, 18, 22)   # 그림자 자리

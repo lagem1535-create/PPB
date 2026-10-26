@@ -50,7 +50,7 @@ def draw_face(p: QPainter, W: float, H: float, v, opts: dict | None = None, bg: 
     if bg:
         p.fillRect(QRectF(0, 0, W, H), QColor(bg))
     now = time.monotonic()
-    base = QColor(base or config.settings().get("color") or "#3B82F6")
+    base = QColor(base or config.settings().get("color") or "#8B5CF6")
     extra_top = 150 if (o["hat"] != "none" or o["antenna"] != "none") else 0   # 모자·더듬이가 잘리지 않게 위를 비운다
     s = min(W / 884, H * 0.95 / (390 + extra_top))
     p.save()
@@ -61,7 +61,7 @@ def draw_face(p: QPainter, W: float, H: float, v, opts: dict | None = None, bg: 
     T, cx = body.top(), body.center().x()
     if v.state == "listening":
         glow = QRadialGradient(cx, T + 200, 520)
-        aura = QColor(config.settings().get("chat_color") or config.settings().get("color") or "#3B82F6")
+        aura = QColor(config.settings().get("chat_color") or config.settings().get("color") or "#8B5CF6")
         aura.setAlpha(150)
         glow.setColorAt(0, aura)   # 듣는 동안의 빛 = 내가 고른 색
         glow.setColorAt(1, QColor(0, 0, 0, 0))
@@ -493,7 +493,7 @@ def thumbnail(opts: dict, w=120, h=96, bg="#FAF8FF") -> QPixmap:
 
 def app_icon(size: int = 256, color: str | None = None) -> QPixmap:
     """앱 아이콘: 둥근 네모 안에서 퍼플루가 아래에서 쏙 올라온 모습 (작업 표시줄·바로가기)."""
-    color = color or config.settings().get("color") or "#3B82F6"
+    color = color or config.settings().get("color") or "#8B5CF6"
     pm = QPixmap(size, size)
     pm.fill(Qt.transparent)
     p = QPainter(pm)

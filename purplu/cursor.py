@@ -278,7 +278,7 @@ class PurpluCursor(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         s = self.size_px
-        color = QColor(config.settings().get("color") or "#3B82F6")
+        color = QColor(config.settings().get("color") or "#8B5CF6")
         if self.state == "sleep":
             color = color.darker(120)
         ring = QColor(STATE_COLORS.get(self.state, "#ffffff"))

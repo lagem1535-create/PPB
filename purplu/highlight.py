@@ -79,7 +79,7 @@ class HighlightOverlay(QWidget):
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        base = QColor(config.settings().get("color") or "#3B82F6")
+        base = QColor(config.settings().get("color") or "#8B5CF6")
         now = time.monotonic()
         font = QFont("Malgun Gothic", 11, QFont.Bold)
         p.setFont(font)

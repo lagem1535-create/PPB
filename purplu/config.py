@@ -89,7 +89,7 @@ DEFAULTS = {
     "cursor_mode": "auto",                            # auto = 필요할 때만 / always = 항상
     "cursor_follow": False,                            # 평소에 내 마우스 따라다니기
     "cursor_size": 64,
-    "color": "#3B82F6",                               # 퍼플루 색 (처음엔 파랑)
+    "color": "#8B5CF6",                               # 퍼플루 색
     "notes_dir": "",                                  # 회의록 폴더 (비우면 D:\bot\data\notes)
     "tablet_port": 8765,
     "pages_url": "",                                  # GitHub Pages 주소 (예: https://이름.github.io/PPB/) — 이 주소에서만 PC에 붙을 수 있다
