@@ -13,7 +13,7 @@ import time
 from ctypes import wintypes
 
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import (QColor, QConicalGradient, QCursor, QFont, QGuiApplication, QLinearGradient, QPainter,
+from PySide6.QtGui import (QColor, QConicalGradient, QCursor, QFont, QFontMetrics, QGuiApplication, QLinearGradient, QPainter,
                            QPainterPath, QPen, QRadialGradient)
 from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QListWidget,
                                QListWidgetItem, QMenu, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QStyle,
@@ -643,6 +643,107 @@ class ModelPopup(QFrame):
         if "effort" in kw:   # 노력은 고르면 첫 장으로
             self.page = "main"
         self.build()
+
+
+# ------------------------------------------------------------------ 대화 제목 ▾ 를 누르면 뜨는 창
+class ConvPopup(QFrame):
+    """새 대화 · 이름 바꾸기 · 지우기 + 최근 대화 목록 (모델 창과 같은 모양, 이모티콘 없이)."""
+
+    def __init__(self, owner):
+        super().__init__(owner, Qt.Popup)
+        self.owner = owner
+        self.setObjectName("convpop")
+        P = pal()
+        self.setStyleSheet(f"QFrame#convpop {{ background:{P['bg']}; border:1px solid {P['line']}; border-radius:14px; }}")
+        self.setFixedWidth(320)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(6, 6, 6, 6)
+        v.setSpacing(0)
+        cur = config.settings().get("current_conversation") or ""
+        self._row(v, "새 대화", "", owner._new_chat)
+        self._row(v, "이 대화 이름 바꾸기", "", owner._rename_conv)
+        self._row(v, "이 대화 지우기", "", owner._delete_conv, color="#E5484D")
+        line = QFrame(self)
+        line.setFixedHeight(1)
+        line.setStyleSheet(f"background:{P['line']}; margin:4px 8px;")
+        v.addWidget(line)
+        lab = QLabel("최근 대화", self)
+        lab.setStyleSheet(f"color:{P['dim']}; font-size:8.5pt; padding:6px 12px 4px; background:transparent;")
+        v.addWidget(lab)
+        convs = getattr(owner, "convs", None)
+        shown = [c for c in (convs or [])
+                 if c["id"] == cur or not (c.get("title") == "새 대화" and c.get("updated") == c.get("created"))][:30]
+        area = QScrollArea(self)
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        area.setStyleSheet(f"QScrollArea {{ background:transparent; border:none; }}"
+                           f"QScrollBar:vertical {{ background:transparent; width:8px; margin:2px; }}"
+                           f"QScrollBar::handle:vertical {{ background:{P['line']}; border-radius:3px; min-height:24px; }}"
+                           f"QScrollBar::add-line, QScrollBar::sub-line {{ height:0; }}")
+        inner = QWidget()
+        inner.setStyleSheet("background:transparent;")
+        lv = QVBoxLayout(inner)
+        lv.setContentsMargins(0, 0, 0, 0)
+        lv.setSpacing(0)
+        for c in shown:
+            self._row(lv, c.get("title") or "새 대화", _ago(c.get("updated")),
+                      lambda _=False, cid=c["id"]: owner._switch_conv(cid), on=c["id"] == cur)
+        if not convs:
+            self._row(lv, "대화를 불러오는 중…", "", None, color=P["dim"])
+            owner._load_convs()
+        area.setWidget(inner)
+        area.setFixedHeight(min(len(shown) or 1, 9) * 36 + 2)
+        v.addWidget(area)
+        self.adjustSize()
+        g = owner.conv.mapToGlobal(QPoint(0, owner.conv.height() + 4))
+        scr = QGuiApplication.screenAt(g) or QGuiApplication.primaryScreen()
+        a = scr.availableGeometry()
+        self.move(min(max(g.x(), a.left() + 4), a.right() - self.width() - 4), min(g.y(), a.bottom() - self.height() - 4))
+
+    def _row(self, lay, text, right, fn, on=False, color=None):
+        P = pal()
+        b = QPushButton(self)
+        b.setCursor(Qt.PointingHandCursor)
+        b.setFixedHeight(36)
+        h = QHBoxLayout(b)
+        h.setContentsMargins(12, 0, 12, 0)
+        h.setSpacing(8)
+        name = QLabel(b)
+        name.setText(QFontMetrics(name.font()).elidedText(text, Qt.ElideRight, 210))
+        name.setStyleSheet(f"color:{color or (self.owner._cc if on else P['text'])}; font-size:10.5pt;"
+                           f" font-weight:{'700' if on else '400'}; background:transparent;")
+        h.addWidget(name)
+        h.addStretch(1)
+        if right:
+            r = QLabel(right, b)
+            r.setStyleSheet(f"color:{P['dim']}; font-size:8.5pt; background:transparent;")
+            h.addWidget(r)
+        b.setStyleSheet(f"QPushButton {{ background:{P['card'] if on else 'transparent'}; border:none; border-radius:8px; }}"
+                        f"QPushButton:hover {{ background:{P['card']}; }}")
+        if fn:
+            b.clicked.connect(lambda: (self.close(), fn()))
+        else:
+            b.setEnabled(False)
+        lay.addWidget(b)
+
+
+def _ago(ms) -> str:
+    """마지막 대화가 언제였는지 짧게: 방금 · 5분 · 3시간 · 어제 · 10/24."""
+    import time as _t
+    try:
+        d = _t.time() - float(ms) / 1000
+    except (TypeError, ValueError):
+        return ""
+    if d < 60:
+        return "방금"
+    if d < 3600:
+        return f"{int(d // 60)}분 전"
+    if d < 86400:
+        return f"{int(d // 3600)}시간 전"
+    if d < 172800:
+        return "어제"
+    return _t.strftime("%m/%d", _t.localtime(float(ms) / 1000))
 
 
 # ------------------------------------------------------------------ [빨리 대답 Ctrl F] 같은 단추
@@ -1386,7 +1487,7 @@ class ChatPanel(QWidget):
             m.addAction(r).setEnabled(False)
         m.addSeparator()
         m.addAction("⧉ 대답 복사", lambda: QGuiApplication.clipboard().setText(text))
-        m.addAction("⚙ 모델 바꾸기", self._model_popup)
+        m.addAction("모델 바꾸기", self._model_popup)
         m.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
 
     def _reply(self, quote: str):
@@ -1554,22 +1655,9 @@ class ChatPanel(QWidget):
         self._show_title(next((c.get("title") for c in rows if c["id"] == cur), "새 대화"))
 
     def _conv_menu(self):
-        m = QMenu(self)
-        cur = config.settings().get("current_conversation") or ""
-        m.addAction("＋  새 대화", self._new_chat)
-        m.addAction("✎  이 대화 이름 바꾸기", self._rename_conv)
-        m.addAction("🗑  이 대화 지우기", self._delete_conv)
-        m.addSeparator()
-        shown = [c for c in getattr(self, "convs", [])
-                 if c["id"] == cur or not (c.get("title") == "새 대화" and c.get("updated") == c.get("created"))]
-        for c in shown[:15]:
-            title = (c.get("title") or "새 대화")[:34]
-            act = m.addAction(("●  " if c["id"] == cur else "     ") + title)
-            act.triggered.connect(lambda _=False, cid=c["id"]: self._switch_conv(cid))
-        if not getattr(self, "convs", None):
-            m.addAction("(대화를 불러오는 중…)").setEnabled(False)
-            self._load_convs()
-        m.exec(self.conv.mapToGlobal(self.conv.rect().bottomLeft()))
+        pop = ConvPopup(self)
+        pop.show()
+        pop.setFocus()
 
     def _switch_conv(self, cid: str):
         if cid == config.settings().get("current_conversation"):
@@ -2218,13 +2306,13 @@ class ChatPanel(QWidget):
         if not servers:
             m.addAction("(아직 없어요 — 아래 예시에서 골라 보세요)").setEnabled(False)
         m.addSeparator()
-        ex = m.addMenu("✨ 예시에서 추가")
+        ex = m.addMenu("예시에서 추가")
         have = {x["name"] for x in servers}
         for p in mcp_client.PRESETS:
             a = ex.addAction(f"{p['name']}  —  {p['desc']}" + ("   (추가됨)" if p["name"] in have else ""))
             a.triggered.connect(lambda _=False, p=p: self._mcp_add_preset(p))
-        m.addAction("⟳  다시 연결", mcp_client.reload)
-        m.addAction("⚙  MCP 설정 열기", lambda: self.open_settings("🔌 MCP"))
+        m.addAction("다시 연결", mcp_client.reload)
+        m.addAction("MCP 설정 열기", lambda: self.open_settings("MCP"))
         m.exec(self.input.mapToGlobal(self.input.rect().topLeft()) - QPoint(0, m.sizeHint().height()))
         self.input.setFocus()
 

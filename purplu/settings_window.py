@@ -8,7 +8,7 @@ from datetime import datetime
 from PySide6.QtCore import QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QFormLayout, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-                               QFrame, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSlider, QTabWidget,
+                               QFrame, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSlider, QStackedWidget, QTabWidget,
                                QPlainTextEdit, QTextBrowser, QVBoxLayout, QWidget)
 
 from html import escape as html_escape
@@ -16,50 +16,72 @@ from html import escape as html_escape
 from . import config, store
 from .server import local_ip
 
-STYLE = """
-QWidget { background:#1E1235; color:#F5F3FF; font-family:'Malgun Gothic'; font-size:10pt; }
-QTabWidget::pane { border:1px solid #4C3A75; border-radius:10px; top:-1px; }
-QTabBar::tab { background:#2E1F4F; padding:8px 18px; border-top-left-radius:8px; border-top-right-radius:8px; margin-right:2px; }
-QTabBar::tab:selected { background:#8B5CF6; }
-QPushButton { background:#8B5CF6; border:none; border-radius:8px; padding:7px 14px; font-weight:600; }
-QPushButton:hover { background:#A78BFA; }
-QPushButton#plain { background:#3B2A63; }
-QPushButton#danger { background:#7F1D1D; }
-QListWidget, QTextBrowser, QComboBox, QLineEdit, QPlainTextEdit { background:#2E1F4F; border:1px solid #4C3A75; border-radius:8px; padding:4px; }
-QListWidget::item { padding:8px; border-radius:6px; }
-QListWidget::item:selected { background:#6D28D9; }
-QCheckBox::indicator { width:18px; height:18px; }
-QFrame#card { background:#241640; border-radius:14px; }
-QFrame#srow { background:transparent; border-bottom:1px solid #2E1F4F; }
-QLabel#cardtitle { color:#A1A1AA; font-weight:700; font-size:9.5pt; margin:4px 2px 0; }
-QFrame#card QLabel, QFrame#srow QLabel { background:transparent; }
-QLabel#rtitle { font-weight:600; } QLabel#rdesc { color:#A1A1AA; font-size:9pt; } QLabel#saved { color:#86EFAC; }
-QWidget#setpage { background:#1E1235; }
-"""
-STYLE_LIGHT = """
-QWidget { background:#FAF8FF; color:#1F1235; font-family:'Malgun Gothic'; font-size:10pt; }
-QTabWidget::pane { border:1px solid #DDD6FE; border-radius:10px; top:-1px; }
-QTabBar::tab { background:#EDE9FE; color:#4C1D95; padding:8px 18px; border-top-left-radius:8px; border-top-right-radius:8px; margin-right:2px; }
-QTabBar::tab:selected { background:#8B5CF6; color:white; }
-QPushButton { background:#8B5CF6; color:white; border:none; border-radius:8px; padding:7px 14px; font-weight:600; }
-QPushButton:hover { background:#7C3AED; }
-QPushButton#plain { background:#EDE9FE; color:#4C1D95; }
-QPushButton#danger { background:#DC2626; }
-QListWidget, QTextBrowser, QComboBox, QLineEdit, QPlainTextEdit { background:white; border:1px solid #DDD6FE; border-radius:8px; padding:4px; }
-QListWidget::item { padding:8px; border-radius:6px; }
-QListWidget::item:selected { background:#DDD6FE; color:#1F1235; }
-QCheckBox::indicator { width:18px; height:18px; }
-QFrame#card { background:#F3F0FF; border-radius:14px; }
-QFrame#srow { background:transparent; border-bottom:1px solid #E9E3FB; }
-QLabel#cardtitle { color:#71717A; font-weight:700; font-size:9.5pt; margin:4px 2px 0; }
-QFrame#card QLabel, QFrame#srow QLabel { background:transparent; }
-QLabel#rtitle { font-weight:600; } QLabel#rdesc { color:#71717A; font-size:9pt; } QLabel#saved { color:#15803D; }
-QWidget#setpage { background:#FAF8FF; }
-"""
+def _colors():
+    """대화창과 같은 색 (밝게/어둡게) + 사용자가 고른 퍼플루 색."""
+    if config.settings().get("theme") == "light":
+        c = dict(bg="#FFFFFF", side="#FAF8FF", text="#1F1235", dim="#71717A", line="#EDE9FE", card="#FAF8FF",
+                 soft="#F3F0FF", hover="#EEE9FB", field="#FFFFFF", red="#DC2626", redbg="#FEF2F2", ok="#15803D")
+    else:
+        c = dict(bg="#120B22", side="#0E0819", text="#F5F3FF", dim="#A1A1AA", line="#2E1F4F", card="#1B1230",
+                 soft="#241640", hover="#2E1F4F", field="#1B1230", red="#F87171", redbg="#3B1520", ok="#86EFAC")
+    c["accent"] = config.settings().get("color") or "#8B5CF6"
+    q = QColor(c["accent"])
+    lum = 0.2126 * q.redF() ** 2.2 + 0.7152 * q.greenF() ** 2.2 + 0.0722 * q.blueF() ** 2.2
+    c["on"] = "#1F1235" if lum > 0.45 else "#FFFFFF"
+    c["accent2"] = q.darker(110).name()
+    return c
 
 
 def style() -> str:
-    return STYLE_LIGHT if config.settings().get("theme") == "light" else STYLE
+    c = _colors()
+    return f"""
+QWidget {{ background:{c['bg']}; color:{c['text']}; font-family:'Malgun Gothic'; font-size:10pt; }}
+QFrame#nav {{ background:{c['side']}; border-right:1px solid {c['line']}; }}
+QFrame#nav QLabel {{ background:transparent; }}
+QLabel#navtitle {{ font-size:13pt; font-weight:700; padding:2px 10px 10px; }}
+QPushButton#navbtn {{ background:transparent; color:{c['text']}; text-align:left; padding:0 12px; min-height:36px;
+                      border-radius:10px; font-weight:400; }}
+QPushButton#navbtn:hover {{ background:{c['hover']}; }}
+QPushButton#navbtn:checked {{ background:{c['soft']}; color:{c['accent']}; font-weight:700; }}
+QLabel#pagetitle {{ font-size:14pt; font-weight:700; padding:0 2px 6px; }}
+QTabWidget::pane {{ border:1px solid {c['line']}; border-radius:12px; top:-1px; }}
+QTabBar::tab {{ background:transparent; color:{c['dim']}; padding:8px 16px; border-radius:8px; margin-right:2px; }}
+QTabBar::tab:selected {{ background:{c['soft']}; color:{c['text']}; font-weight:700; }}
+QPushButton {{ background:{c['accent']}; color:{c['on']}; border:none; border-radius:10px; padding:8px 16px; font-weight:600; }}
+QPushButton:hover {{ background:{c['accent2']}; }}
+QPushButton:disabled {{ background:{c['soft']}; color:{c['dim']}; }}
+QPushButton#plain {{ background:{c['soft']}; color:{c['text']}; }}
+QPushButton#plain:hover {{ background:{c['hover']}; }}
+QPushButton#danger {{ background:{c['redbg']}; color:{c['red']}; }}
+QListWidget, QTextBrowser, QComboBox, QLineEdit, QPlainTextEdit, QSpinBox {{
+    background:{c['field']}; border:1px solid {c['line']}; border-radius:10px; padding:6px 8px;
+    selection-background-color:{c['soft']}; selection-color:{c['text']}; }}
+QComboBox:focus, QLineEdit:focus, QPlainTextEdit:focus {{ border:1px solid {c['accent']}; }}
+QComboBox::drop-down {{ border:none; width:22px; }}
+QComboBox QAbstractItemView {{ background:{c['bg']}; border:1px solid {c['line']}; border-radius:10px; padding:4px;
+                               selection-background-color:{c['soft']}; selection-color:{c['text']}; outline:none; }}
+QListWidget {{ outline:none; }}
+QListWidget::item {{ padding:9px 10px; border-radius:8px; }}
+QListWidget::item:hover {{ background:{c['hover']}; }}
+QListWidget::item:selected {{ background:{c['soft']}; color:{c['text']}; }}
+QCheckBox {{ background:transparent; spacing:8px; }}
+QCheckBox::indicator {{ width:18px; height:18px; }}
+QScrollArea {{ border:none; }}
+QScrollBar:vertical {{ background:transparent; width:10px; margin:2px; }}
+QScrollBar::handle:vertical {{ background:{c['line']}; border-radius:4px; min-height:30px; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ height:0; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background:transparent; }}
+QSlider::groove:horizontal {{ height:4px; background:{c['line']}; border-radius:2px; }}
+QSlider::handle:horizontal {{ background:{c['accent']}; width:16px; height:16px; margin:-6px 0; border-radius:8px; }}
+QSlider::sub-page:horizontal {{ background:{c['accent']}; border-radius:2px; }}
+QFrame#card {{ background:{c['card']}; border:1px solid {c['line']}; border-radius:14px; }}
+QFrame#srow {{ background:transparent; border:none; border-bottom:1px solid {c['line']}; }}
+QLabel#cardtitle {{ color:{c['dim']}; font-weight:700; font-size:9.5pt; margin:6px 2px 0; background:transparent; }}
+QFrame#card QLabel, QFrame#srow QLabel {{ background:transparent; border:none; }}
+QLabel#rtitle {{ font-weight:600; }} QLabel#rdesc {{ color:{c['dim']}; font-size:9pt; }} QLabel#saved {{ color:{c['ok']}; }}
+QWidget#setpage {{ background:{c['bg']}; }}
+QToolTip {{ background:{c['bg']}; color:{c['text']}; border:1px solid {c['line']}; border-radius:6px; padding:4px 8px; }}
+"""
 
 
 def _when(ms) -> str:
@@ -117,6 +139,63 @@ def add_preset(parent, p) -> dict | None:
     return sv
 
 
+class NavTabs(QWidget):
+    """왼쪽 메뉴 + 오른쪽 화면. QTabWidget 과 같은 이름(addTab · tabText · setCurrentIndex)으로 쓴다."""
+
+    def __init__(self, title="설정"):
+        super().__init__()
+        h = QHBoxLayout(self)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(0)
+        self.nav = QFrame(objectName="nav")
+        self.nav.setFixedWidth(184)
+        self.nav_lay = QVBoxLayout(self.nav)
+        self.nav_lay.setContentsMargins(12, 18, 12, 12)
+        self.nav_lay.setSpacing(2)
+        self.nav_lay.addWidget(QLabel(title, objectName="navtitle"))
+        self.nav_lay.addStretch(1)
+        h.addWidget(self.nav)
+        right = QWidget()
+        rv = QVBoxLayout(right)
+        rv.setContentsMargins(26, 20, 22, 18)
+        rv.setSpacing(8)
+        self.page_title = QLabel("", objectName="pagetitle")
+        rv.addWidget(self.page_title)
+        self.stack = QStackedWidget()
+        rv.addWidget(self.stack, 1)
+        h.addWidget(right, 1)
+        self.names, self.btns = [], []
+
+    def addTab(self, w, name):
+        i = len(self.names)
+        b = QPushButton(name, objectName="navbtn")
+        b.setCheckable(True)
+        b.setCursor(Qt.PointingHandCursor)
+        b.clicked.connect(lambda _=False, i=i: self.setCurrentIndex(i))
+        self.nav_lay.insertWidget(self.nav_lay.count() - 1, b)
+        self.stack.addWidget(w)
+        self.names.append(name)
+        self.btns.append(b)
+        if i == 0:
+            self.setCurrentIndex(0)
+        return i
+
+    def count(self):
+        return len(self.names)
+
+    def tabText(self, i):
+        return self.names[i]
+
+    def currentIndex(self):
+        return self.stack.currentIndex()
+
+    def setCurrentIndex(self, i):
+        self.stack.setCurrentIndex(i)
+        for n, b in enumerate(self.btns):
+            b.setChecked(n == i)
+        self.page_title.setText(self.names[i])
+
+
 class SettingsWindow(QWidget):
     _mcp_status = Signal()   # MCP 서버 상태가 바뀜 (다른 스레드 → 화면)
 
@@ -128,26 +207,27 @@ class SettingsWindow(QWidget):
         self.network_problem_fn = network_problem_fn
         self.setWindowTitle("퍼플루 설정")
         self.setStyleSheet(style())
-        self.resize(760, 560)
-        tabs = QTabWidget()
+        self.resize(900, 620)
+        tabs = NavTabs("설정")
         self.tabs = tabs
-        tabs.addTab(self._chat_tab(), "💬 대화")
-        tabs.addTab(self._memo_tab(), "📝 메모")
-        tabs.addTab(self._voice_tab(), "🔊 목소리")
-        tabs.addTab(self._skills_tab(), "🧩 스킬")
+        tabs.addTab(self._settings_tab(), "일반")
         tabs.addTab(self._models_tab(), "모델")
-        tabs.addTab(self._mcp_tab(), "🔌 MCP")
-        tabs.addTab(self._settings_tab(), "⚙ 설정")
-        tabs.addTab(self._tablet_tab(), "📱 갤럭시 탭")
+        tabs.addTab(self._chat_tab(), "대화")
+        tabs.addTab(self._memo_tab(), "메모")
+        tabs.addTab(self._voice_tab(), "목소리")
+        tabs.addTab(self._skills_tab(), "스킬")
+        tabs.addTab(self._mcp_tab(), "MCP")
+        tabs.addTab(self._tablet_tab(), "갤럭시 탭")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(14, 14, 14, 14)
+        lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(tabs)
 
     def open(self, tab: int | str | None = None):
         config.load()
         if isinstance(tab, bool):   # 메뉴에서 부르면 checked(False)가 따라올 수 있다
             tab = None
-        if isinstance(tab, str):   # 예: "🔌 MCP"
+        if isinstance(tab, str):   # 예: "MCP" (예전 이름 "MCP"·"설정" 도 찾아진다)
+            tab = {"설정": "일반"}.get(tab.split()[-1], tab.split()[-1]) if tab.split() else tab
             names = [self.tabs.tabText(i) for i in range(self.tabs.count())]
             tab = next((i for i, n in enumerate(names) if tab in n), None)
         if tab is not None:
@@ -171,7 +251,7 @@ class SettingsWindow(QWidget):
         self.conv_list.currentItemChanged.connect(self._show_messages)
         self.conv_list.itemDoubleClicked.connect(lambda _: self._select())
         self.preview = QTextBrowser()
-        btn_new = QPushButton("＋ 새 대화")
+        btn_new = QPushButton("새 대화")
         btn_new.clicked.connect(self._new)
         btn_use = QPushButton("이 대화로 이어가기")
         btn_use.clicked.connect(self._select)
@@ -204,7 +284,7 @@ class SettingsWindow(QWidget):
         try:
             convs = store.list_conversations()
         except Exception as e:
-            self.conv_list.addItem(f"⚠ Firebase에 연결 못 했어요: {e}")
+            self.conv_list.addItem(f"Firebase에 연결 못 했어요: {e}")
             convs = []
         for c in convs:
             mark = "● " if c["id"] == current else "   "
@@ -230,7 +310,7 @@ class SettingsWindow(QWidget):
         try:
             rows = store.messages(cid)
         except Exception as e:
-            self.preview.setHtml(f"⚠ {e}")
+            self.preview.setHtml(f"{e}")
             return
         html = []
         for r in rows:
@@ -282,7 +362,7 @@ class SettingsWindow(QWidget):
         self.voice_list.itemDoubleClicked.connect(lambda _: self._preview())
         play = QPushButton("▶ 들어보기")
         play.clicked.connect(self._preview)
-        pick = QPushButton("✓ 이 목소리로 정하기")
+        pick = QPushButton("이 목소리로 정하기")
         pick.clicked.connect(self._pick_voice)
         self.voice_status = QLabel()
         self.voice_status.setStyleSheet("color:#DDD6FE;")
@@ -314,7 +394,7 @@ class SettingsWindow(QWidget):
         if v:
             config.save_settings(voice=v)
             self._mark_voice()
-            self.voice_status.setText(f"✓ 이제 '{v}' 목소리로 말해요")
+            self.voice_status.setText(f"이제 '{v}' 목소리로 말해요")
 
     def _mark_voice(self):
         cur = config.settings().get("voice")
@@ -327,8 +407,8 @@ class SettingsWindow(QWidget):
 
     def voice_preview_status(self, data: dict):
         v, st = data.get("voice"), data.get("status")
-        text = {"loading": f"{v} 목소리 만드는 중…", "playing": f"🔊 {v} 재생 중",
-                "error": f"⚠ {data.get('error', '')}"}.get(st, "")
+        text = {"loading": f"{v} 목소리 만드는 중…", "playing": f"{v} 재생 중",
+                "error": f"{data.get('error', '')}"}.get(st, "")
         self.voice_status.setText(text)
 
     # ---- 메모 탭 ----
@@ -339,7 +419,7 @@ class SettingsWindow(QWidget):
         self.memo_input = QLineEdit()
         self.memo_input.setPlaceholderText("직접 메모 쓰기… (Enter)")
         self.memo_input.returnPressed.connect(self._add_memo)
-        btn_pin = QPushButton("📌 붙이기/떼기", objectName="plain")
+        btn_pin = QPushButton("화면에 붙이기/떼기", objectName="plain")
         btn_pin.clicked.connect(self._toggle_pin)
         btn_del = QPushButton("삭제", objectName="danger")
         btn_del.clicked.connect(self._delete_memo)
@@ -351,7 +431,7 @@ class SettingsWindow(QWidget):
         lay.addWidget(self.memo_input)
         lay.addWidget(self.memo_list, 1)
         lay.addLayout(row)
-        note = QLabel("퍼플루에게 \"메모해줘\"라고 하면 여기와 PC 화면(포스트잇)에 남아요. 📌 = 화면에 붙어 있는 메모.")
+        note = QLabel("퍼플루에게 \"메모해줘\"라고 하면 여기와 PC 화면(포스트잇)에 남아요. [붙임] = 화면에 붙어 있는 메모.")
         note.setStyleSheet("color:#A1A1AA; font-size:9pt;")
         lay.addWidget(note)
         return w
@@ -364,7 +444,7 @@ class SettingsWindow(QWidget):
         self.skill_list.itemChanged.connect(self._toggle_skill)
         self.skill_list.setWordWrap(True)
         self.skill_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        new = QPushButton("＋ 새 스킬")
+        new = QPushButton("새 스킬")
         new.clicked.connect(self._new_skill)
         left = QVBoxLayout()
         left.addWidget(new)
@@ -378,7 +458,7 @@ class SettingsWindow(QWidget):
         self.sk_desc = QLineEdit(placeholderText="언제 쓰나요? (예: '좋은 아침' 하면 날씨·일정 알려 주기)")
         self.sk_inst = QPlainTextEdit(placeholderText="설명서 (단계별로)\n1) 오늘 서울 날씨를 찾아\n"
                                                       "2) 오늘 알림과 메모를 모아\n3) 세 줄 이내로 밝게 말해")
-        save = QPushButton("💾 저장")
+        save = QPushButton("저장")
         save.clicked.connect(self._save_skill)
         self.sk_del = QPushButton("삭제", objectName="danger")
         self.sk_del.clicked.connect(self._delete_skill)
@@ -405,12 +485,12 @@ class SettingsWindow(QWidget):
             rows = skills.list_skills()["skills"]
         except Exception as e:
             self.skill_list.clear()
-            self.skill_list.addItem(f"⚠ Firebase에 연결 못 했어요: {e}")
+            self.skill_list.addItem(f"Firebase에 연결 못 했어요: {e}")
             return
         self.skill_list.blockSignals(True)
         self.skill_list.clear()
         for r in rows:
-            item = QListWidgetItem(f"🧩 {r['name']}\n     {r.get('description') or ''}")
+            item = QListWidgetItem(f"{r['name']}\n     {r.get('description') or ''}")
             item.setData(Qt.UserRole, r["id"])
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
             item.setCheckState(Qt.Checked if r.get("enabled", True) else Qt.Unchecked)
@@ -470,12 +550,12 @@ class SettingsWindow(QWidget):
             self.show_memos(store.list_memos())
         except Exception as e:
             self.memo_list.clear()
-            self.memo_list.addItem(f"⚠ Firebase에 연결 못 했어요: {e}")
+            self.memo_list.addItem(f"Firebase에 연결 못 했어요: {e}")
 
     def show_memos(self, rows):
         self.memo_list.clear()
         for r in rows:
-            item = QListWidgetItem(f"{'📌 ' if r.get('pinned') else '    '}{r.get('text', '')}\n     {_when(r.get('created'))}")
+            item = QListWidgetItem(f"{'[붙임] ' if r.get('pinned') else ''}{r.get('text', '')}\n     {_when(r.get('created'))}")
             item.setData(Qt.UserRole, r["id"])
             item.setData(Qt.UserRole + 1, bool(r.get("pinned")))
             self.memo_list.addItem(item)
@@ -685,7 +765,7 @@ class SettingsWindow(QWidget):
              "새 PC의 '퍼플루 시작하기' 창에 붙여 넣으면 대화·설정·메모가 모두 같아져요. '키도 같이'는 키까지 넘어가니 남에게 보여 주지 마세요."),
             code_row, wide=True)
         sc = QPushButton("바로가기 다시 만들기", objectName="plain")
-        sc.clicked.connect(lambda: (install.make_shortcuts(), self._flash("✓ 바탕화면·시작 메뉴에 만들었어요")))
+        sc.clicked.connect(lambda: (install.make_shortcuts(), self._flash("바탕화면·시작 메뉴에 만들었어요")))
         row(v, "퍼플루 바로가기", "바탕화면·시작 메뉴 (퍼플루 아이콘)", sc)
 
         self.saved_label = QLabel()
@@ -706,7 +786,7 @@ class SettingsWindow(QWidget):
             config.save_settings(**{key: bool(on)})
         self._flash()
 
-    def _flash(self, text="✓ 저장했어요"):
+    def _flash(self, text="저장했어요"):
         if hasattr(self, "saved_label"):
             self.saved_label.setText(text)
             QTimer.singleShot(1500, lambda: self.saved_label.setText(""))
@@ -720,9 +800,9 @@ class SettingsWindow(QWidget):
 
     def _fill_settings_inner(self):
         s = config.settings()
-        self.key_label.setText("✓ 저장됨" if config.get_api_key() else "⚠ 아직 없어요")
+        self.key_label.setText("저장됨" if config.get_api_key() else "아직 없어요")
         for prov, lab in getattr(self, "other_keys", {}).items():
-            lab.setText("✓ 저장됨" if config.get_key(prov) else "없음")
+            lab.setText("저장됨" if config.get_key(prov) else "없음")
         for key, cb in self.combos.items():
             if cb.findText(str(s[key])) < 0:
                 cb.addItem(str(s[key]))
@@ -753,7 +833,7 @@ class SettingsWindow(QWidget):
                 self.sec_level.setCurrentIndex(self.sec_level.findData(old))
                 return
         config.save_settings(security_level=new, python_approval=config.SECURITY_PYTHON[new])
-        self.saved_label.setText("✓ 보안 수준을 바꿨어요 (다음에 말할 때부터 적용)")
+        self.saved_label.setText("보안 수준을 바꿨어요 (다음에 말할 때부터 적용)")
 
     def _python_mode_changed(self, _=None):
         """자동 실행으로 바꿀 땐 경고를 보여 주고, 동의해야 저장한다."""
@@ -768,7 +848,7 @@ class SettingsWindow(QWidget):
                 self.py_mode.setCurrentIndex(self.py_mode.findData(old))
                 return
         config.save_settings(python_approval=new)
-        self.saved_label.setText("✓ 실행 전 확인 방식을 바꿨어요")
+        self.saved_label.setText("실행 전 확인 방식을 바꿨어요")
 
     def sync_fields(self, changes: dict):
         self._filling = True   # 다른 기기에서 바뀐 걸 보여 줄 땐 다시 저장하지 않게
@@ -836,7 +916,7 @@ class SettingsWindow(QWidget):
         changes = {k: v for k, v in changes.items() if old.get(k) != v}
         if changes:
             config.save_settings(**changes)
-        self.saved_label.setText("✓ 저장했어요" if changes else "바뀐 게 없어요")
+        self.saved_label.setText("저장했어요" if changes else "바뀐 게 없어요")
 
     def _ask_key(self):
         key, ok = QInputDialog.getText(self, "Gemini 키", "Google AI Studio에서 받은 Gemini API 키:",
@@ -844,7 +924,7 @@ class SettingsWindow(QWidget):
         if ok and key.strip():
             config.set_api_key(key)
             self.brain.sleep()
-            self.key_label.setText("✓ 저장됨")
+            self.key_label.setText("저장됨")
 
     # ---- 모델 관리 탭 ----
 
@@ -868,11 +948,11 @@ class SettingsWindow(QWidget):
         from .model_ui import GROUPS, catalog
         lay = self.models_lay
         while lay.count():
-            it = lay.takeAt(0)
-            if it.widget():
-                it.widget().hide()
-                it.widget().setParent(None)
-                it.widget().deleteLater()
+            w = lay.takeAt(0).widget()   # 먼저 받아 둔다 (setParent(None) 뒤엔 칸이 비어서 다시 못 꺼낸다)
+            if w:
+                w.hide()
+                w.setParent(None)
+                w.deleteLater()
         light = config.settings().get("theme") == "light"
         dim = "#71717A" if light else "#A1A1AA"
         hidden = set(config.settings().get("hidden_models") or [])
@@ -957,7 +1037,7 @@ class SettingsWindow(QWidget):
         from PySide6.QtGui import QGuiApplication
         from . import install
         QGuiApplication.clipboard().setText(install.make_code(with_keys))
-        self._flash("✓ 연결 코드를 복사했어요" + (" (키 포함 · 남에게 보여 주지 마세요)" if with_keys else ""))
+        self._flash("연결 코드를 복사했어요" + (" (키 포함 · 남에게 보여 주지 마세요)" if with_keys else ""))
 
     def _ask_other_key(self, provider, title):
         key, ok = QInputDialog.getText(self, title, f"{title.replace(' (선택)', '')}를 붙여 넣으세요 (비우고 확인하면 지워요):",
@@ -968,7 +1048,7 @@ class SettingsWindow(QWidget):
         if provider == "openai":
             from . import providers
             providers.openai_models(refresh=True)   # 쓸 수 있는 GPT 모델 다시 보기
-        self.other_keys[provider].setText("✓ 저장됨" if key.strip() else "없음")
+        self.other_keys[provider].setText("저장됨" if key.strip() else "없음")
         self._flash()
 
     # ---- 갤럭시 탭 ----
@@ -1081,7 +1161,7 @@ class SettingsWindow(QWidget):
         have = {x["name"]: x for x in mcp_client.load()}
         for name, (btn, state, plus_bg, line) in getattr(self, "mcp_cards", {}).items():
             added = name in have
-            btn.setText("✓" if added else "+")
+            btn.setText("추가됨" if added else "추가")
             btn.setToolTip("추가됨 (누르면 내 서버에서 보기·지우기)" if added else "추가하기")
             btn.setStyleSheet(
                 "QPushButton { background:#BBF7D0; color:#15803D; border:none; border-radius:9px; font-size:13pt; font-weight:800; padding:0; }"
@@ -1127,7 +1207,7 @@ class SettingsWindow(QWidget):
         self.mcp_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.mcp_list.currentItemChanged.connect(self._pick_mcp)
         self.mcp_list.itemChanged.connect(self._toggle_mcp)
-        new = QPushButton("＋ 새 서버")
+        new = QPushButton("새 서버")
         new.clicked.connect(self._new_mcp)
         paste = QPushButton("JSON 붙여넣기", objectName="plain")
         paste.setToolTip('Claude·Cursor 설정의 {"mcpServers": {...}} 를 그대로 붙여 넣어요')
@@ -1156,7 +1236,7 @@ class SettingsWindow(QWidget):
         self.mcp_env.setFixedHeight(70)
         self.mcp_info = QTextBrowser()
         self.mcp_info.setOpenExternalLinks(False)
-        save = QPushButton("💾 저장")
+        save = QPushButton("저장")
         save.clicked.connect(self._save_mcp)
         again = QPushButton("다시 연결", objectName="plain")
         again.clicked.connect(lambda: mcp_client.reload())
@@ -1203,7 +1283,7 @@ class SettingsWindow(QWidget):
         if state == "connecting":
             return "… 연결 중" + (f" (지난 오류: {st['error'][:40]})" if st.get("error") else "")
         if state == "error":
-            return f"⚠ {st['error'][:70]}"
+            return f"{st['error'][:70]}"
         return "○ 꺼짐"
 
     def refresh_mcp(self):
@@ -1213,7 +1293,7 @@ class SettingsWindow(QWidget):
         self.mcp_list.clear()
         for sv in servers:
             st = mcp_client.status.get(sv["name"], {"state": "off" if not sv.get("enabled", True) else "connecting"})
-            item = QListWidgetItem(f"🔌 {sv['name']}\n     {self._mcp_state_text(st)}")
+            item = QListWidgetItem(f"{sv['name']}\n     {self._mcp_state_text(st)}")
             item.setData(Qt.UserRole, sv["name"])
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
             item.setCheckState(Qt.Checked if sv.get("enabled", True) else Qt.Unchecked)
@@ -1310,7 +1390,7 @@ class SettingsWindow(QWidget):
     def _flash_mcp(self):
         self.refresh_mcp()
         if hasattr(self, "_flash"):
-            self._flash("✓ 저장했어요 · 연결하는 중…")
+            self._flash("저장했어요 · 연결하는 중…")
 
     def _delete_mcp(self):
         from . import mcp_client
@@ -1372,7 +1452,7 @@ class SettingsWindow(QWidget):
             "3. 크롬 메뉴 ⋮ → '홈 화면에 추가'로 앱처럼 쓰기.\n"
             "   (깃허브가 안 되면: 탭에서 http://" + local_ip() + ":" + str(config.settings()["tablet_port"]) + " — 글 채팅은 바로 돼요)\n\n"
             "탭에서: 퍼플루를 꾹 누르고 있는 동안 말하고, 떼면 대답해요.\n"
-            "            오른쪽 위 ⚙ 버튼(또는 마우스 우클릭)으로 설정·대화목록·메모를 열어요.\n\n"
+            "            오른쪽 위 설정 버튼(또는 마우스 우클릭)으로 설정·대화목록·메모를 열어요.\n\n"
             "안 될 때: Windows 방화벽 창이 뜨면 '개인 네트워크' 허용. 공유기의 '게스트 와이파이'는 안 돼요.")
         guide.setStyleSheet("color:#DDD6FE;")
         lay.addWidget(QLabel("탭 크롬에서 이 주소를 여세요:"))
@@ -1401,7 +1481,7 @@ class SettingsWindow(QWidget):
         if self.local_url_fn:
             self.local_url.setText(f"이 PC 브라우저에서 시험해 보려면: {self.local_url_fn()}")
         problem = self.network_problem_fn() if self.network_problem_fn else ""
-        self.net_warn.setText("⚠ " + problem)
+        self.net_warn.setText("" + problem)
         self.net_warn.setVisible(bool(problem))
         try:
             import qrcode

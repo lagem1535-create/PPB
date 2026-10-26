@@ -366,10 +366,10 @@ class App:
         menu.addAction(QAction(f"말하기: {key} 키를 누르고 있기", menu, enabled=False))
         menu.addSeparator()
         menu.addAction("설정 · 대화목록…", self.open_settings)
-        menu.addAction("💬 대화창 열기 (Ctrl+Alt+C)", self.open_chat)
-        menu.addAction("🌐 브라우저로 열기", lambda: webbrowser.open(f"http://localhost:{config.settings()['tablet_port']}/"))
+        menu.addAction("대화창 열기 (Ctrl+Alt+C)", self.open_chat)
+        menu.addAction("브라우저로 열기", lambda: webbrowser.open(f"http://localhost:{config.settings()['tablet_port']}/"))
         menu.addAction("새 대화", lambda: self.brain.new_conversation())
-        self.act_meeting = menu.addAction("● 회의록 시작", self.toggle_meeting)
+        self.act_meeting = menu.addAction("회의록 시작", self.toggle_meeting)
         menu.addAction("회의록 폴더 열기", self.open_notes_folder)
         menu.addAction("말풍선 보기", lambda: self.bubble.pop(8000))
         menu.addAction("커서 집으로", lambda: self.cursor.home())
@@ -501,7 +501,7 @@ class App:
             b.pop(5000)
         elif kind == "meeting":
             st = data.get("status")
-            self.act_meeting.setText("■ 회의록 끝내기" if recorder.recording else "● 회의록 시작")
+            self.act_meeting.setText("회의록 끝내기" if recorder.recording else "회의록 시작")
             if st == "recording":
                 b.extra = f"<div style='color:#FCA5A5'>● 회의록 녹음 시작: <b>{html.escape(data['title'])}</b></div>"
                 b.pop(6000)

@@ -5,10 +5,10 @@
 - install() → 프로그램 전체의 QMessageBox.question · information · warning · critical 을 이 모양으로 바꾼다
   (예전 코드는 그대로 두고, 켤 때 한 번만 부르면 된다)
 """
-from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt
+from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPoint, QPropertyAnimation, Qt
 from PySide6.QtGui import QColor, QGuiApplication
-from PySide6.QtWidgets import (QDialog, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QMessageBox,
-                               QPushButton, QVBoxLayout)
+from PySide6.QtWidgets import (QDialog, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
+                               QMenu, QMessageBox, QPlainTextEdit, QPushButton, QVBoxLayout)
 
 from . import config
 
@@ -28,7 +28,7 @@ def _on(hexv: str) -> str:
 
 
 class PurpluDialog(QDialog):
-    def __init__(self, parent, title, text, buttons, default=0, danger=False):
+    def __init__(self, parent, title, text, buttons, default=0, danger=False, field=None):
         """buttons: [(글, 값)] — 마지막이 주 단추(진한 색). default: Enter 로 누를 단추 번호."""
         super().__init__(parent.window() if parent else None)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
@@ -54,6 +54,10 @@ class PurpluDialog(QDialog):
             QPushButton#pmain {{ background:{accent}; color:{_on(accent)}; font-weight:700; }}
             QPushButton#pmain:hover {{ background:{QColor(accent).darker(110).name()}; }}
             QPushButton:focus {{ outline:none; }}
+            QLineEdit, QPlainTextEdit {{ background:{P['soft']}; color:{P['text']}; border:1px solid {P['line']};
+                         border-radius:10px; padding:8px 10px; font-family:'Malgun Gothic'; font-size:10.5pt;
+                         selection-background-color:{accent}; selection-color:{_on(accent)}; }}
+            QLineEdit:focus, QPlainTextEdit:focus {{ border:1px solid {accent}; background:{P['bg']}; }}
         """)
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(36)
@@ -73,6 +77,10 @@ class PurpluDialog(QDialog):
             b.setWordWrap(True)
             b.setTextInteractionFlags(Qt.TextSelectableByMouse)
             v.addWidget(b)
+        self.field = field
+        if field is not None:   # 글 넣는 칸
+            v.addSpacing(4)
+            v.addWidget(field)
         v.addSpacing(10)
         row = QHBoxLayout()
         row.setSpacing(8)
@@ -90,6 +98,11 @@ class PurpluDialog(QDialog):
             btn = self.btns[max(0, min(default, len(self.btns) - 1))][0]
             btn.setDefault(True)
             btn.setFocus()
+        if field is not None:
+            field.setFocus()
+            if isinstance(field, QLineEdit):
+                field.selectAll()
+                field.returnPressed.connect(lambda: self._done(buttons[-1][1]))
         self._cancel = buttons[0][1] if buttons else None
 
     def _done(self, value):
@@ -151,6 +164,21 @@ def ask(parent, title, text="", ok="네", cancel="아니요", danger=None, defau
     return bool(d.run())
 
 
+def ask_text(parent, title, label="", text="", ok="확인", cancel="취소", password=False, multiline=False):
+    """글 하나 받기 → (글, 눌렀나)."""
+    if multiline:
+        f = QPlainTextEdit()
+        f.setPlainText(text)
+        f.setFixedHeight(140)
+    else:
+        f = QLineEdit(text)
+        if password:
+            f.setEchoMode(QLineEdit.Password)
+    d = PurpluDialog(parent, _clean(title), label.rstrip(": ").rstrip(":"), [(cancel, False), (ok, True)], default=1, field=f)
+    got = bool(d.run())
+    return (f.toPlainText() if multiline else f.text()), got
+
+
 def info(parent, title, text="", ok="확인"):
     PurpluDialog(parent, _clean(title), text, [(ok, True)]).run()
 
@@ -180,7 +208,46 @@ def _plain(parent, title, text, buttons=_OK, defaultButton=QMessageBox.NoButton)
     return _box(parent, title, text, buttons, defaultButton, _OK)
 
 
+def _get_text(parent, title, label, echo=QLineEdit.Normal, text="", *a, **k):
+    return ask_text(parent, title, label, text or k.get("text", ""), password=echo == QLineEdit.Password)
+
+
+def _get_multi(parent, title, label, text="", *a, **k):
+    return ask_text(parent, title, label, text, multiline=True)
+
+
+class _MenuLook(QObject):
+    """모든 오른쪽 클릭 메뉴(QMenu)를 둥글고 깔끔하게: 메뉴가 처음 준비될 때 모양을 입힌다."""
+
+    def eventFilter(self, w, e):
+        if e.type() == QEvent.Polish and isinstance(w, QMenu) and not w.property("purplu_look"):
+            w.setProperty("purplu_look", True)
+            P = _pal()
+            w.setAttribute(Qt.WA_TranslucentBackground)
+            w.setWindowFlag(Qt.FramelessWindowHint, True)
+            w.setWindowFlag(Qt.NoDropShadowWindowHint, True)
+            w.setStyleSheet(f"""
+                QMenu {{ background:{P['bg']}; border:1px solid {P['line']}; border-radius:12px; padding:6px;
+                         font-family:'Malgun Gothic'; font-size:10pt; }}
+                QMenu::item {{ color:{P['text']}; padding:8px 26px 8px 12px; border-radius:8px; background:transparent; }}
+                QMenu::item:selected {{ background:{P['soft']}; }}
+                QMenu::item:disabled {{ color:{P['dim']}; }}
+                QMenu::separator {{ height:1px; background:{P['line']}; margin:5px 8px; }}
+            """)
+        return False
+
+
+_menu_look = None
+
+
 def install():
+    global _menu_look
+    from PySide6.QtWidgets import QApplication
+    if QApplication.instance() and _menu_look is None:
+        _menu_look = _MenuLook()
+        QApplication.instance().installEventFilter(_menu_look)
+    QInputDialog.getText = staticmethod(_get_text)
+    QInputDialog.getMultiLineText = staticmethod(_get_multi)
     QMessageBox.question = staticmethod(_question)
     QMessageBox.information = staticmethod(_plain)
     QMessageBox.warning = staticmethod(_plain)
