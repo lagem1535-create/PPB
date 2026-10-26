@@ -39,8 +39,7 @@ echo [2/5] 전용 공간 (.venv)  OK
 rem ---- 3. 필요한 프로그램 설치 ----
 if not exist data mkdir data
 echo [3/5] 필요한 프로그램을 설치·확인하는 중... (처음엔 5~10분)
-.venv\Scripts\python -m pip install --upgrade pip -q
-.venv\Scripts\python -m pip install -r requirements.txt -q || (
+.venv\Scripts\python purplu\install_bar.py requirements.txt || (
   echo      설치에 실패했어요. 인터넷 연결과 디스크 공간을 확인하고 다시 해 주세요.
   pause & exit /b 1
 )
