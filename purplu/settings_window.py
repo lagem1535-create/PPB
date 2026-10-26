@@ -5,9 +5,9 @@
 import io
 from datetime import datetime
 
-from PySide6.QtCore import QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QFormLayout, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
+from PySide6.QtCore import QRect, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
+from PySide6.QtWidgets import (QCheckBox, QColorDialog, QStyle, QStyledItemDelegate, QComboBox, QFormLayout, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
                                QFrame, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSlider, QStackedWidget, QTabWidget,
                                QPlainTextEdit, QTextBrowser, QVBoxLayout, QWidget)
 
@@ -61,6 +61,10 @@ QComboBox::drop-down {{ border:none; width:22px; }}
 QComboBox QAbstractItemView {{ background:{c['bg']}; border:1px solid {c['line']}; border-radius:10px; padding:4px;
                                selection-background-color:{c['soft']}; selection-color:{c['text']}; outline:none; }}
 QListWidget {{ outline:none; }}
+QListWidget#convlist {{ background:transparent; border:none; padding:0; }}
+QListWidget#convlist::item, QListWidget#convlist::item:hover, QListWidget#convlist::item:selected {{ background:transparent; }}
+QFrame#bubblebox {{ background:{c['bg']}; border:1px solid {c['line']}; border-radius:14px; }}
+QScrollArea#bubbles {{ background:transparent; border:none; }}
 QListWidget::item {{ padding:9px 10px; border-radius:8px; }}
 QListWidget::item:hover {{ background:{c['hover']}; }}
 QListWidget::item:selected {{ background:{c['soft']}; color:{c['text']}; }}
@@ -137,6 +141,57 @@ def add_preset(parent, p) -> dict | None:
     sv = mcp_client.from_preset(p, folder, token)
     mcp_client.save([x for x in mcp_client.load() if x["name"] != sv["name"]] + [sv])
     return sv
+
+
+class ConvDelegate(QStyledItemDelegate):
+    """대화 목록 한 줄: 제목 (지금 대화면 '지금' 꼬리표) · 오른쪽에 언제."""
+
+    def sizeHint(self, option, index):
+        return QSize(option.rect.width(), 46)
+
+    def paint(self, p, option, index):
+        from .chatpanel import _ago
+        c = _colors()
+        p.save()
+        p.setRenderHint(QPainter.Antialiasing)
+        r = option.rect.adjusted(2, 2, -2, -2)
+        sel = bool(option.state & QStyle.State_Selected)
+        hover = bool(option.state & QStyle.State_MouseOver)
+        if sel or hover:
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(c["soft"] if sel else c["hover"]))
+            p.drawRoundedRect(QRectF(r), 10, 10)
+        now = bool(index.data(Qt.UserRole + 2))
+        f = QFont(option.font)
+        f.setPointSizeF(10)
+        f.setBold(sel)
+        fs = QFont(option.font)
+        fs.setPointSizeF(8.5)
+        when = _ago(index.data(Qt.UserRole + 1)) if index.data(Qt.UserRole) else ""
+        p.setFont(fs)
+        ww = p.fontMetrics().horizontalAdvance(when) if when else 0
+        x, right = r.left() + 12, r.right() - 12
+        if now:   # 지금 대화: 작은 퍼플루 색 꼬리표
+            tw = p.fontMetrics().horizontalAdvance("지금") + 12
+            tag = QRectF(right - ww - (10 if ww else 0) - tw, r.center().y() - 9, tw, 18)
+            p.setPen(Qt.NoPen)
+            col = QColor(c["accent"])
+            col.setAlpha(40)
+            p.setBrush(col)
+            p.drawRoundedRect(tag, 9, 9)
+            p.setPen(QColor(c["accent"]))
+            p.drawText(tag, Qt.AlignCenter, "지금")
+            right_text = tag.left() - 8
+        else:
+            right_text = right - ww - (10 if ww else 0)
+        if when:
+            p.setPen(QColor(c["dim"]))
+            p.drawText(QRectF(right - ww, r.top(), ww, r.height()), Qt.AlignVCenter | Qt.AlignRight, when)
+        p.setFont(f)
+        p.setPen(QColor(c["text"]))
+        title = p.fontMetrics().elidedText(index.data(Qt.DisplayRole) or "", Qt.ElideRight, int(right_text - x))
+        p.drawText(QRectF(x, r.top(), right_text - x, r.height()), Qt.AlignVCenter | Qt.AlignLeft, title)
+        p.restore()
 
 
 class NavTabs(QWidget):
@@ -246,78 +301,166 @@ class SettingsWindow(QWidget):
     # ---- 대화 탭 ----
 
     def _chat_tab(self):
+        """왼쪽: 찾기 · 새 대화 · 대화 목록 / 오른쪽: 제목 · 이름 바꾸기 · 지우기 · 말풍선 미리보기 · 이어가기."""
         w = QWidget()
-        self.conv_list = QListWidget()
-        self.conv_list.currentItemChanged.connect(self._show_messages)
-        self.conv_list.itemDoubleClicked.connect(lambda _: self._select())
-        self.preview = QTextBrowser()
+        lay = QHBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(16)
+
+        left = QFrame(objectName="card")
+        left.setFixedWidth(300)
+        lv = QVBoxLayout(left)
+        lv.setContentsMargins(10, 10, 10, 10)
+        lv.setSpacing(8)
+        top = QHBoxLayout()
+        top.setSpacing(6)
+        self.conv_find = QLineEdit(placeholderText="대화 찾기")
+        self.conv_find.setClearButtonEnabled(True)
+        self.conv_find.textChanged.connect(self._filter_convs)
+        top.addWidget(self.conv_find, 1)
         btn_new = QPushButton("새 대화")
         btn_new.clicked.connect(self._new)
-        btn_use = QPushButton("이 대화로 이어가기")
-        btn_use.clicked.connect(self._select)
+        top.addWidget(btn_new)
+        lv.addLayout(top)
+        self.conv_list = QListWidget(objectName="convlist")
+        self.conv_list.setItemDelegate(ConvDelegate(self.conv_list))
+        self.conv_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.conv_list.setVerticalScrollMode(QListWidget.ScrollPerPixel)
+        self.conv_list.currentItemChanged.connect(self._show_messages)
+        self.conv_list.itemDoubleClicked.connect(lambda _: self._select())
+        lv.addWidget(self.conv_list, 1)
+        lay.addWidget(left)
+
+        right = QVBoxLayout()
+        right.setSpacing(10)
+        head = QHBoxLayout()
+        head.setSpacing(6)
+        tv = QVBoxLayout()
+        tv.setSpacing(2)
+        self.conv_title = QLabel()
+        self.conv_title.setStyleSheet("font-size:13pt; font-weight:700; background:transparent;")
+        self.conv_sub = QLabel(objectName="rdesc")
+        tv.addWidget(self.conv_title)
+        tv.addWidget(self.conv_sub)
+        head.addLayout(tv, 1)
         btn_rename = QPushButton("이름 바꾸기", objectName="plain")
         btn_rename.clicked.connect(self._rename)
-        btn_del = QPushButton("삭제", objectName="danger")
+        btn_del = QPushButton("지우기", objectName="danger")
         btn_del.clicked.connect(self._delete)
-        left = QVBoxLayout()
-        left.addWidget(btn_new)
-        left.addWidget(self.conv_list, 1)
-        row = QHBoxLayout()
-        row.addWidget(btn_rename)
-        row.addWidget(btn_del)
-        left.addLayout(row)
-        right = QVBoxLayout()
-        self.conv_title = QLabel()
-        self.conv_title.setFont(QFont("Malgun Gothic", 12, QFont.Bold))
-        right.addWidget(self.conv_title)
-        right.addWidget(self.preview, 1)
-        right.addWidget(btn_use)
-        lay = QHBoxLayout(w)
-        lay.addLayout(left, 2)
-        lay.addLayout(right, 3)
+        head.addWidget(btn_rename, 0, Qt.AlignTop)
+        head.addWidget(btn_del, 0, Qt.AlignTop)
+        right.addLayout(head)
+        self.preview = QScrollArea(objectName="bubbles")
+        self.preview.setWidgetResizable(True)
+        self.preview.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        frame = QFrame(objectName="bubblebox")   # 둥근 테두리는 바깥 상자가 (스크롤 칸은 모서리를 못 깎는다)
+        fl = QVBoxLayout(frame)
+        fl.setContentsMargins(10, 8, 6, 8)
+        fl.addWidget(self.preview)
+        right.addWidget(frame, 1)
+        bottom = QHBoxLayout()
+        bottom.addStretch(1)
+        btn_use = QPushButton("이 대화로 이어가기")
+        btn_use.setMinimumWidth(180)
+        btn_use.clicked.connect(self._select)
+        bottom.addWidget(btn_use)
+        right.addLayout(bottom)
+        lay.addLayout(right, 1)
         return w
 
     def refresh_conversations(self):
         current = config.settings().get("current_conversation")
+        keep = self._selected_id()
         self.conv_list.blockSignals(True)
         self.conv_list.clear()
         try:
             convs = store.list_conversations()
         except Exception as e:
-            self.conv_list.addItem(f"Firebase에 연결 못 했어요: {e}")
-            convs = []
-        for c in convs:
-            mark = "● " if c["id"] == current else "   "
-            item = QListWidgetItem(f"{mark}{c.get('title', '새 대화')}\n     {_when(c.get('updated'))}")
-            item.setData(Qt.UserRole, c["id"])
+            item = QListWidgetItem(f"연결 못 했어요: {e}")
+            item.setFlags(Qt.NoItemFlags)
             self.conv_list.addItem(item)
-            if c["id"] == current:
-                self.conv_list.setCurrentItem(item)
+            convs = []
+        pick = None
+        for c in convs:
+            item = QListWidgetItem(c.get("title") or "새 대화")
+            item.setData(Qt.UserRole, c["id"])
+            item.setData(Qt.UserRole + 1, c.get("updated"))
+            item.setData(Qt.UserRole + 2, c["id"] == current)
+            self.conv_list.addItem(item)
+            if c["id"] == (keep or current):
+                pick = item
+        if pick:
+            self.conv_list.setCurrentItem(pick)
         self.conv_list.blockSignals(False)
+        self._filter_convs(self.conv_find.text())
         self._show_messages(self.conv_list.currentItem())
 
-    def _selected_id(self):
-        item = self.conv_list.currentItem()
-        return item.data(Qt.UserRole) if item else None
+    def _filter_convs(self, q):
+        q = (q or "").strip().lower()
+        for i in range(self.conv_list.count()):
+            it = self.conv_list.item(i)
+            it.setHidden(bool(q) and q not in it.text().lower())
+
+    def _bubbles(self, rows, empty=""):
+        """대화를 말풍선으로: 내 말은 오른쪽 퍼플루 색, 퍼플루 말은 왼쪽 카드."""
+        c = _colors()
+        page = QWidget(objectName="setpage")
+        v = QVBoxLayout(page)
+        v.setContentsMargins(4, 6, 10, 6)
+        v.setSpacing(10)
+        if not rows:
+            lab = QLabel(empty or "아직 나눈 말이 없어요.", objectName="rdesc")
+            lab.setAlignment(Qt.AlignCenter)
+            v.addStretch(1)
+            v.addWidget(lab)
+        tint = QColor(c["accent"])
+        tint.setAlpha(36)
+        for r in rows[-200:]:
+            me = r.get("role") == "user"
+            box = QVBoxLayout()
+            box.setSpacing(3)
+            when = QLabel(("나" if me else "퍼플루") + "  ·  " + _when(r.get("t")), objectName="rdesc")
+            bubble = QLabel(r.get("text") or "")
+            bubble.setWordWrap(True)
+            bubble.setTextFormat(Qt.PlainText)
+            bubble.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            longest = max(((r.get("text") or " ").splitlines() or [" "]), key=len)
+            bubble.setMaximumWidth(min(460, QFontMetrics(QFont("Malgun Gothic", 10)).horizontalAdvance(longest) + 44))   # 짧은 말은 짧은 풍선
+            bubble.setStyleSheet(
+                f"background:rgba({tint.red()},{tint.green()},{tint.blue()},{tint.alpha()}); border-radius:14px; padding:9px 13px;"
+                if me else f"background:{c['card']}; border:1px solid {c['line']}; border-radius:14px; padding:9px 13px;")
+            align = Qt.AlignRight if me else Qt.AlignLeft
+            box.addWidget(when, 0, align)
+            line = QHBoxLayout()   # 정렬 대신 빈칸으로 밀어야 줄바꿈 글의 높이가 맞는다
+            line.setSpacing(0)
+            if me:
+                line.addStretch(1)
+            line.addWidget(bubble, 3)
+            if not me:
+                line.addStretch(1)
+            box.addLayout(line)
+            v.addLayout(box)
+        v.addStretch(1)
+        self.preview.setWidget(page)
+        QTimer.singleShot(0, lambda: self.preview.verticalScrollBar().setValue(self.preview.verticalScrollBar().maximum()))
 
     def _show_messages(self, item, _prev=None):
         cid = item.data(Qt.UserRole) if item else None
         if not cid:
             self.conv_title.setText("대화를 골라 주세요")
-            self.preview.setHtml("")
+            self.conv_sub.setText("")
+            self._bubbles([], "왼쪽에서 대화를 고르면 여기에 보여요.")
             return
-        self.conv_title.setText(item.text().split("\n")[0].strip("● ").strip())
+        self.conv_title.setText(item.text())
         try:
             rows = store.messages(cid)
         except Exception as e:
-            self.preview.setHtml(f"{e}")
+            self.conv_sub.setText("")
+            self._bubbles([], f"불러오지 못했어요: {e}")
             return
-        html = []
-        for r in rows:
-            who, color = ("나", "#C4B5FD") if r.get("role") == "user" else ("퍼플루", "#F9A8D4")
-            text = (r.get("text") or "").replace("<", "&lt;")
-            html.append(f"<p><b style='color:{color}'>{who}</b> <span style='color:#71717A'>{_when(r.get('t'))}</span><br>{text}</p>")
-        self.preview.setHtml("".join(html) or "<p style='color:#A1A1AA'>아직 나눈 말이 없어요.</p>")
+        now = "지금 대화 · " if item.data(Qt.UserRole + 2) else ""
+        self.conv_sub.setText(f"{now}말 {len(rows)}개 · 마지막 {_when(item.data(Qt.UserRole + 1))}")
+        self._bubbles(rows)
 
     def _new(self):
         self.brain.new_conversation()
@@ -342,13 +485,17 @@ class SettingsWindow(QWidget):
         cid = self._selected_id()
         if not cid:
             return
-        if QMessageBox.question(self, "대화 삭제", f"'{self.conv_title.text()}' 대화를 지울까요?\n되돌릴 수 없어요.") \
+        if QMessageBox.question(self, "대화 지우기", f"'{self.conv_title.text()}' 대화를 지울까요?\n지우면 되돌릴 수 없어요.") \
                 != QMessageBox.Yes:
             return
         store.delete_conversation(cid)
         if cid == config.settings().get("current_conversation"):
             self.brain.new_conversation()
         QTimer.singleShot(600, self.refresh_conversations)
+
+    def _selected_id(self):
+        item = self.conv_list.currentItem()
+        return item.data(Qt.UserRole) if item else None
 
     # ---- 목소리 탭: 들어보고 고르기 ----
 
