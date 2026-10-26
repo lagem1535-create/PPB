@@ -39,7 +39,7 @@ def _line(done: int, total: int, name: str, now: float) -> str:
             out.append(f"\x1b[38;2;70;70;84m{BAR}")
     pct = int(frac * 100)
     label = (name[:22] + "…") if len(name) > 23 else name
-    return f"\r  {''.join(out)}\x1b[0m  {pct:3d}%  \x1b[38;2;160;160;170m{label:<24}\x1b[0m"
+    return f"\r  {''.join(out)}\x1b[0m  \x1b[1m{pct:3d}%\x1b[0m\x1b[38;2;160;160;170m{label:<24}\x1b[0m"
 
 
 def main() -> int:
