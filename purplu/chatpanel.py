@@ -538,8 +538,8 @@ class ModelPopup(QFrame):
                     else:
                         self._row(it["name"], fn=lambda _=False, m=it["mid"]: self._set(text_model=m), on=it["mid"] == cur,
                                   indent=True, sub={"cli": "터미널", "local": "이 PC"}.get(it["kind"], ""), into=bl)
-                box.setVisible(is_open)
-                self.v.addWidget(box)
+                self.v.addWidget(box)     # 먼저 이 창 안에 넣고 나서 보이기/숨기기
+                box.setVisible(is_open)   # (넣기 전에 보이면 따로 빈 창이 떠서, 모델 창이 닫혀 버린다)
                 self._boxes[g["id"]] = (box, head)
             self._sep()
             if model_info(cur)[3]:   # 생각하는 모델에서만 노력
@@ -570,9 +570,9 @@ class ModelPopup(QFrame):
         h.addStretch(1)
         b.ck = QLabel("✓")
         b.ck.setStyleSheet(f"color:{self.owner._cc}; font-weight:800; background:transparent;")
-        b.ck.setVisible(has_cur and not is_open)
-        b.has_cur = has_cur
         h.addWidget(b.ck)
+        b.ck.setVisible(has_cur and not is_open)   # 넣은 다음에 (먼저 보이면 따로 창이 뜬다)
+        b.has_cur = has_cur
         b.setStyleSheet(f"QPushButton {{ background:transparent; border:none; border-radius:8px; }}"
                         f"QPushButton:hover {{ background:{P['card']}; }}")
         b.clicked.connect(lambda: self._toggle_group(g["id"]))
