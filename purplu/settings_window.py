@@ -294,33 +294,16 @@ class SettingsWindow(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(1, 1, 1, 1)
         lay.addWidget(tabs)
+        from .frameless import Frameless
+        self._frame = Frameless(self)
         grip = QSizeGrip(self)   # 오른쪽 아래 모서리로 크기 바꾸기
         grip.setFixedSize(16, 16)
         self._grip = grip
 
-    # ---- 테두리 없는 창: 빈 곳을 잡고 옮기기 · 가장자리로 크기 바꾸기 · 둥근 모서리 ----
-    def _edges(self, pos):
-        m, r = 6, self.rect()
-        e = Qt.Edges()
-        if pos.x() <= m:
-            e |= Qt.LeftEdge
-        if pos.x() >= r.width() - m:
-            e |= Qt.RightEdge
-        if pos.y() <= m:
-            e |= Qt.TopEdge
-        if pos.y() >= r.height() - m:
-            e |= Qt.BottomEdge
-        return e
-
+    # ---- 테두리 없는 창: 빈 곳을 잡고 옮기기 · 가장자리로 크기 바꾸기 (frameless.py) ----
     def mousePressEvent(self, e):
-        if e.button() == Qt.LeftButton and self.windowHandle():
-            edges = self._edges(e.position().toPoint())
-            if edges:
-                self.windowHandle().startSystemResize(edges)
-            else:
-                self.windowHandle().startSystemMove()   # 끌어서 옮기기 (화면 끝에 대면 반으로 나누기도 된다)
-            return
-        super().mousePressEvent(e)
+        if not self._frame.drag(e):
+            super().mousePressEvent(e)
 
     def mouseDoubleClickEvent(self, e):
         self.showNormal() if self.isMaximized() else self.showMaximized()
@@ -337,12 +320,8 @@ class SettingsWindow(QWidget):
 
     def showEvent(self, e):
         super().showEvent(e)
-        try:   # Windows 11: 둥근 모서리
-            import ctypes
-            pref = ctypes.c_int(2)
-            ctypes.windll.dwmapi.DwmSetWindowAttribute(int(self.winId()), 33, ctypes.byref(pref), 4)
-        except Exception:
-            pass
+        from .frameless import round_corners
+        round_corners(self)
 
     def open(self, tab: int | str | None = None):
         config.load()
@@ -903,6 +882,12 @@ class SettingsWindow(QWidget):
         color_row.addWidget(pick)
         color_row.addStretch(1)
         row(v, "퍼플루 색", "", color_row, wide=True)
+        self.glow_box = QComboBox()
+        for key, text in config.GLOW_NAMES.items():
+            self.glow_box.addItem(text, key)
+        self.glow_box.setCurrentIndex(max(0, self.glow_box.findData(config.settings().get("chat_glow") or "mine")))
+        self.glow_box.activated.connect(lambda _=None: (config.save_settings(chat_glow=self.glow_box.currentData()), self._flash()))
+        row(v, "입력칸 빛", "글 쓰는 칸 둘레에 흐르는 색", self.glow_box)
         work_row = QHBoxLayout()
         self.work_btn = QPushButton(objectName="plain")
         self.work_btn.clicked.connect(self._pick_work_color)
@@ -1028,6 +1013,7 @@ class SettingsWindow(QWidget):
         self._paint_work_btn()
         self.sec_level.setCurrentIndex(max(0, self.sec_level.findData(s.get("security_level", "strict"))))
         self.theme_box.setCurrentIndex(max(0, self.theme_box.findData(s.get("theme", "dark"))))
+        self.glow_box.setCurrentIndex(max(0, self.glow_box.findData(s.get("chat_glow") or "mine")))
         self.hide_box.setCurrentIndex(max(0, self.hide_box.findData(int(s.get("pc_chat_autohide", 15) or 0))))
         self.saved_label.setText("")
         self._mark_voice()
@@ -1100,7 +1086,7 @@ class SettingsWindow(QWidget):
             b.setStyleSheet(f"background:{hexv}; border:{border}; border-radius:15px; padding:0;")
 
     def _set_color(self, hexv: str):
-        config.save_settings(color=hexv)
+        config.save_settings(color=hexv, chat_glow="mine")   # 색을 바꾸면 입력칸 빛도 그 색으로
         self._paint_swatches()
 
     def _paint_work_btn(self):

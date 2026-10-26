@@ -110,8 +110,14 @@ def on_color(hexv: str) -> str:
 
 
 def glow_colors() -> list[str]:
+    """입력칸 둘레 빛. '내 색'(기본)이면 고른 색에서 이웃 색을 만들어 흐르게."""
     s = config.settings()
-    return GLOWS.get(s.get("chat_glow") or "rainbow") or [s.get("color") or "#8B5CF6", "#FFFFFF", s.get("color") or "#8B5CF6"]
+    if s.get("chat_glow") in GLOWS:
+        return GLOWS[s["chat_glow"]]
+    base = QColor(s.get("chat_color") or s.get("color") or "#8B5CF6")
+    h, sat, v, _a = base.getHsv()
+    near = lambda dh, dv=0: QColor.fromHsv((h + dh) % 360, sat, max(0, min(255, v + dv))).name()   # noqa: E731
+    return [base.name(), near(28, 10), base.lighter(135).name(), near(-28, -10)]
 
 
 # ------------------------------------------------------------------ 얼굴
@@ -165,11 +171,38 @@ class FaceView(QWidget):
         self.update()
 
     def mousePressEvent(self, e):
-        if e.button() == Qt.LeftButton:
-            self.pressed.emit()
+        """꾹 누르면 말하기. 작게 보기에선 누른 채 끌면 창 옮기기 (그땐 말하기를 시작하지 않는다)."""
+        if e.button() != Qt.LeftButton:
+            return
+        win = self.window()
+        if getattr(win, "mini", False) and not config.settings().get("pc_chat_pinned"):
+            self._press_at = e.globalPosition().toPoint()
+            self._talk_wait = QTimer(self, singleShot=True, timeout=self._start_talk)
+            self._talk_wait.start(220)   # 잠깐 기다려 보고 안 움직이면 말하기
+            return
+        self._start_talk()
+
+    def _start_talk(self):
+        self._press_at = None
+        self._talking = True
+        self.pressed.emit()
+
+    def mouseMoveEvent(self, e):
+        at = getattr(self, "_press_at", None)
+        if at is not None and (e.globalPosition().toPoint() - at).manhattanLength() > 8:
+            self._press_at = None
+            self._talk_wait.stop()
+            if self.window().windowHandle():
+                self.window().windowHandle().startSystemMove()
 
     def mouseReleaseEvent(self, e):
-        if e.button() == Qt.LeftButton:
+        if e.button() != Qt.LeftButton:
+            return
+        if getattr(self, "_press_at", None) is not None:   # 짧게 눌렀다 뗌: 말하기를 짧게
+            self._talk_wait.stop()
+            self._start_talk()
+        if getattr(self, "_talking", False):
+            self._talking = False
             self.released.emit()
 
     def paintEvent(self, _):
@@ -981,11 +1014,14 @@ class ChatPanel(QWidget):
     _agent_line = Signal(str, str)   # 터미널 에이전트의 한 줄 (다른 스레드 → 화면)
 
     def __init__(self, brain, icon=None, open_settings=None):
-        super().__init__(None, Qt.Window)
+        super().__init__(None, Qt.Window | Qt.FramelessWindowHint)   # 윈도우 위 줄 없이 (퍼플루 단추만)
         self.brain = brain
         self.open_settings = open_settings or (lambda: None)
         self.mini = False
         self.setWindowTitle("퍼플루 대화")
+        from .frameless import Frameless
+        self._frame = Frameless(self, can_resize=lambda: not self.mini and not config.settings().get("pc_chat_pinned"),
+                                can_move=lambda: not config.settings().get("pc_chat_pinned"))
         if icon:
             self.setWindowIcon(icon)
         self.state = "idle"
@@ -2466,6 +2502,15 @@ class ChatPanel(QWidget):
     def hideEvent(self, e):
         self._release_space()
         super().hideEvent(e)
+
+    def mousePressEvent(self, e):
+        if not self._frame.drag(e):   # 빈 곳을 끌면 창 옮기기 (오른쪽에 고정해 두면 안 움직인다)
+            super().mousePressEvent(e)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        from .frameless import round_corners
+        round_corners(self)
 
     def closeEvent(self, e):
         self._release_space()
