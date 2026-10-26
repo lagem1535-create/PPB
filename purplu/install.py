@@ -32,7 +32,8 @@ def set_firebase_url(url: str):
 
 
 def make_code(with_keys: bool) -> str:
-    data = {"fb": firebase_url()}
+    from .store import parse
+    data = {"fb": parse(firebase_url())[1]}   # 'both|주소' 여도 주소만 (새 PC는 스스로 방식을 고른다)
     if with_keys:
         data["keys"] = {p: config.get_key(p) for p in ("gemini", "anthropic", "openai") if config.get_key(p)}
     raw = json.dumps(data, separators=(",", ":")).encode()
@@ -45,7 +46,8 @@ def read_code(text: str) -> dict:
     if not t or t.lower() == "local":   # 비우면 이 PC에만 저장 (Firebase 없이)
         return {"fb": "local", "keys": {}}
     if t.startswith("https://") and "firebase" in t:
-        return {"fb": t.rstrip("/"), "keys": {}}
+        from .store import clean_url
+        return {"fb": clean_url(t), "keys": {}}
     if t.upper().startswith("PURPLU-"):
         body = t[7:]
         body += "=" * (-len(body) % 4)

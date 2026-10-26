@@ -334,6 +334,7 @@ class SettingsWindow(QWidget):
         if tab is not None:
             self.tabs.setCurrentIndex(tab)
         self._fill_settings()
+        self._paint_storage()
         self.refresh_conversations()
         self.refresh_memos()
         self.refresh_skills()
@@ -951,6 +952,32 @@ class SettingsWindow(QWidget):
         row(v, "웹 주소 (GitHub Pages)", "이 주소에서 연 화면만 PC에 연결돼요", self.pages_edit, wide=True)
         from . import install, store
         local = store.is_local()
+        # ---- 저장 방식: 이 PC에만 · 온라인만 · 이 PC + 온라인 (서로 옮기기) ----
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(6)
+        self.mode_btns = {}
+        for m, text in (("local", "이 PC에만"), ("online", "온라인만"), ("both", "이 PC + 온라인")):
+            b = QPushButton(text, objectName="plain")
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(lambda _=False, m=m: self._switch_storage(m))
+            self.mode_btns[m] = b
+            mode_row.addWidget(b)
+        mode_row.addStretch(1)
+        self.mode_desc = QLabel(objectName="rdesc")
+        self.mode_desc.setWordWrap(True)
+        self.mode_desc.setContentsMargins(14, 0, 14, 8)   # 위 줄들과 같은 들여쓰기
+        row(v, "저장 방식", "", mode_row, wide=True)
+        v.addWidget(self.mode_desc)
+        json_row = QHBoxLayout()
+        jo = QPushButton("JSON 파일로 내보내기", objectName="plain")
+        jo.clicked.connect(self._export_json)
+        ji = QPushButton("JSON 파일 넣기", objectName="plain")
+        ji.clicked.connect(self._import_json)
+        json_row.addWidget(jo)
+        json_row.addWidget(ji)
+        json_row.addStretch(1)
+        row(v, "데이터 파일", "대화·설정·메모를 한 파일로. 다른 PC나 다른 Firebase 로 옮길 때", json_row, wide=True)
+        self._paint_storage()
         code_row = QHBoxLayout()
         b1 = QPushButton("코드 복사", objectName="plain")
         b2 = QPushButton("키도 같이 복사", objectName="plain")
@@ -975,6 +1002,127 @@ class SettingsWindow(QWidget):
         lay.addWidget(note)
         lay.addStretch(1)
         return outer
+
+    # ---- 저장 방식 바꾸기 · JSON ----
+    _MODE_TEXT = {"local": "이 PC에만", "online": "온라인만 (Firebase)", "both": "이 PC + 온라인"}
+
+    def _paint_storage(self):
+        from . import store
+        for m, b in self.mode_btns.items():
+            on = m == store.MODE
+            b.setEnabled(not on)
+            b.setText({"local": "이 PC에만", "online": "온라인만", "both": "이 PC + 온라인"}[m] + ("  (지금)" if on else ""))
+        st = store.sync_state
+        extra = ""
+        if store.is_both():
+            extra = (f"  ·  아직 못 보낸 것 {st['pending']}개 (인터넷이 돌아오면 보내요)" if st.get("pending") else "  ·  온라인과 맞춰져 있어요")
+        self.mode_desc.setText({
+            "local": "지금: 이 PC에만 저장해요. 인터넷이 없어도 되고 Ollama 와 잘 맞아요. 다른 PC와 같이 쓰려면 '이 PC + 온라인' 으로 바꾸세요.",
+            "online": "지금: 온라인(Firebase)에만 저장해요. 여러 PC가 같이 써요. 인터넷이 끊기면 대화가 저장되지 않아요.",
+            "both": "지금: 이 PC와 온라인 둘 다에 저장해요. 인터넷이 없어도 이 PC에 저장되고, 돌아오면 온라인에도 올라가요.",
+        }.get(store.MODE, "") + extra)
+
+    def _backup_path(self, tag):
+        d = config.DATA_DIR / "backup"
+        d.mkdir(parents=True, exist_ok=True)
+        return d / f"purplu-{tag}-{datetime.now():%Y%m%d-%H%M%S}.json"
+
+    def _current_tree(self):
+        from . import store
+        return store.local_tree() if store.MODE in ("local", "both") else store.remote_tree()
+
+    def _switch_storage(self, target):
+        """이 PC ↔ 온라인 옮기기. 바꾸기 전에 지금 데이터를 data/backup 에 JSON 으로 남긴다."""
+        import json
+        from PySide6.QtWidgets import QApplication
+        from . import install, store
+        cur, url = store.MODE, store.REMOTE
+        names = self._MODE_TEXT
+        if target in ("online", "both") and not url:
+            url, ok = QInputDialog.getText(self, "Firebase 주소", "온라인에 올릴 Firebase 주소 (https://…firebasedatabase.app):")
+            if not ok or not url.strip():
+                return
+        how = {("local", "online"): "이 PC의 대화·설정·메모를 전부 온라인에 올리고, 앞으로는 온라인에만 저장해요.",
+               ("local", "both"): "이 PC의 대화·설정·메모를 전부 온라인에 올리고, 앞으로는 둘 다에 저장해요.",
+               ("online", "local"): "온라인의 대화·설정·메모를 전부 이 PC로 내려받고, 앞으로는 이 PC에만 저장해요.",
+               ("online", "both"): "온라인의 대화·설정·메모를 이 PC에도 내려받고, 앞으로는 둘 다에 저장해요.",
+               ("both", "local"): "앞으로는 이 PC에만 저장해요 (이 PC에 이미 다 있어요).",
+               ("both", "online"): "못 보낸 걸 마저 올리고, 앞으로는 온라인에만 저장해요."}.get((cur, target), "")
+        if QMessageBox.question(self, f"{names.get(cur, '')} → {names[target]}",
+                                how + "\n\n바꾸기 전 데이터는 data\\backup 폴더에 JSON 파일로 남겨 둬요. "
+                                "다 되면 퍼플루가 다시 켜져요.") != QMessageBox.Yes:
+            return
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            if target in ("online", "both"):
+                url = store.check_remote(url)
+            backup = self._backup_path(cur)
+            backup.write_text(json.dumps(self._current_tree(), ensure_ascii=False, indent=1), encoding="utf-8")
+            if cur == "local":
+                store.upload_tree(store.local_tree(), url)
+            elif cur == "online":
+                store.save_local_tree(store.remote_tree(), merge=(target == "both"))
+            elif cur == "both" and not store.flush(20) and target == "online":
+                raise RuntimeError(f"아직 온라인에 못 보낸 게 {store.sync_state['pending']}개 있어요. 인터넷을 확인하고 다시 해 주세요.")
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            return QMessageBox.information(self, "저장 방식", f"바꾸지 못했어요: {e}")
+        QApplication.restoreOverrideCursor()
+        if target == "local" and cur == "online" and QMessageBox.question(
+                self, "온라인 데이터 지우기", "내려받은 온라인(Firebase)의 데이터를 전부 지울까요?\n"
+                "다른 PC가 같은 Firebase 를 쓰고 있으면 그 PC의 대화도 사라져요. 지우면 되돌릴 수 없어요.",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes:
+            try:
+                store.wipe_remote(url)
+            except Exception as e:
+                QMessageBox.information(self, "온라인 데이터 지우기", f"지우지 못했어요: {e}")
+        install.set_firebase_url({"local": "local", "online": url, "both": store.BOTH + (url or "")}[target])
+        QMessageBox.information(self, "저장 방식", f"'{names[target]}' 으로 바꿨어요.\n바꾸기 전 데이터: {backup}\n\n퍼플루를 다시 켤게요.")
+        QApplication.instance().exit(0)   # 지킴이가 2초 뒤 다시 켠다 (새 방식으로)
+
+    def _export_json(self):
+        import json
+        from PySide6.QtWidgets import QFileDialog
+        from pathlib import Path
+        path, _ = QFileDialog.getSaveFileName(self, "JSON 파일로 내보내기",
+                                              str(Path.home() / "Desktop" / f"purplu-data-{datetime.now():%Y%m%d}.json"),
+                                              "JSON (*.json)")
+        if not path:
+            return
+        try:
+            Path(path).write_text(json.dumps(self._current_tree(), ensure_ascii=False, indent=1), encoding="utf-8")
+        except Exception as e:
+            return QMessageBox.information(self, "내보내기", f"저장하지 못했어요: {e}")
+        self._flash("JSON 파일로 저장했어요")
+
+    def _import_json(self):
+        """JSON 파일의 대화·설정·메모를 지금 저장하는 곳에 합쳐 넣는다 (같은 대화는 파일 쪽으로)."""
+        import json
+        from PySide6.QtWidgets import QFileDialog
+        from pathlib import Path
+        from . import store
+        path, _ = QFileDialog.getOpenFileName(self, "JSON 파일 넣기", str(Path.home() / "Desktop"), "JSON (*.json)")
+        if not path:
+            return
+        try:
+            tree = json.loads(Path(path).read_text(encoding="utf-8"))
+            if isinstance(tree, dict) and isinstance(tree.get("purplu"), dict):   # Firebase 에서 통째로 받은 파일
+                tree = tree["purplu"]
+            if not isinstance(tree, dict):
+                raise ValueError("퍼플루 데이터 파일이 아니에요")
+            n = len(tree.get("conversations") or {})
+            if QMessageBox.question(self, "JSON 파일 넣기", f"대화 {n}개 · 메모 {len(tree.get('memos') or {})}개를 "
+                                    f"'{self._MODE_TEXT.get(store.MODE, '')}' 에 합쳐 넣을까요?\n같은 대화는 파일 쪽으로 바뀌어요.") != QMessageBox.Yes:
+                return
+            if store.MODE in ("local", "both"):
+                store.save_local_tree(tree, merge=True)
+            if store.MODE in ("online", "both"):
+                store.upload_tree(tree)
+        except Exception as e:
+            return QMessageBox.information(self, "JSON 파일 넣기", f"넣지 못했어요: {e}")
+        self.refresh_conversations()
+        self.refresh_memos()
+        self._flash("JSON 파일을 넣었어요")
 
     def _toggle_saved(self, key, on):
         if getattr(self, "_filling", False):
