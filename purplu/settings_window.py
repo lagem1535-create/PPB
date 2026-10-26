@@ -747,12 +747,9 @@ class SettingsWindow(QWidget):
             return
         order = list(config.SECURITY_LEVELS)
         if order.index(new) > order.index(old):  # 낮추는 쪽만 경고
-            box = QMessageBox(QMessageBox.Warning, "퍼플루 — 보안 경고", config.SECURITY_WARNING[new],
-                              QMessageBox.Yes | QMessageBox.No, self)
-            box.button(QMessageBox.Yes).setText("위험을 알고 바꿀게요")
-            box.button(QMessageBox.No).setText("취소")
-            box.setDefaultButton(QMessageBox.No)
-            if box.exec() != QMessageBox.Yes:
+            from .dialog import ask
+            if not ask(self, "보안 경고", config.SECURITY_WARNING[new], ok="위험을 알고 바꿀게요", cancel="취소",
+                       danger=True, default_ok=False):
                 self.sec_level.setCurrentIndex(self.sec_level.findData(old))
                 return
         config.save_settings(security_level=new, python_approval=config.SECURITY_PYTHON[new])
@@ -765,12 +762,9 @@ class SettingsWindow(QWidget):
         if new == old:
             return
         if new in config.PYTHON_APPROVAL_WARNING:
-            box = QMessageBox(QMessageBox.Warning, "퍼플루 — 자동 실행 경고", config.PYTHON_APPROVAL_WARNING[new],
-                              QMessageBox.Yes | QMessageBox.No, self)
-            box.button(QMessageBox.Yes).setText("알겠어요, 켤게요")
-            box.button(QMessageBox.No).setText("취소")
-            box.setDefaultButton(QMessageBox.No)
-            if box.exec() != QMessageBox.Yes:
+            from .dialog import ask
+            if not ask(self, "자동 실행 경고", config.PYTHON_APPROVAL_WARNING[new], ok="알겠어요, 켤게요", cancel="취소",
+                       danger=True, default_ok=False):
                 self.py_mode.setCurrentIndex(self.py_mode.findData(old))
                 return
         config.save_settings(python_approval=new)

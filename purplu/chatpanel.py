@@ -503,7 +503,7 @@ class ModelPopup(QFrame):
         s = config.settings()
         cur = s.get("text_model") or "gemini-3.8-flash"
         if self.page == "effort":
-            self._row("〈  노력", fn=lambda: self._go("main"))
+            self._row("〈  생각 강도", fn=lambda: self._go("main"))
             self._label("높을수록 깊게 생각하지만 더 느려요.", small=True)
             eff = s.get("effort") or "medium"
             bar = EffortBar(EFFORTS, eff)
@@ -542,8 +542,10 @@ class ModelPopup(QFrame):
                 box.setVisible(is_open)   # (넣기 전에 보이면 따로 빈 창이 떠서, 모델 창이 닫혀 버린다)
                 self._boxes[g["id"]] = (box, head)
             self._sep()
-            if model_info(cur)[3]:   # 생각하는 모델에서만 노력
-                self._row("노력", dict(EFFORTS).get(s.get("effort") or "medium", "") + "  ›", fn=lambda: self._go("effort"))
+            if model_info(cur)[3]:   # 생각 강도: 생각하는 모델이면 바꿀 수 있고, 아니면 흐리게 안내만
+                self._row("생각 강도", dict(EFFORTS).get(s.get("effort") or "medium", "") + "  ›", fn=lambda: self._go("effort"))
+            else:
+                self._row("생각 강도", "이 모델은 못 바꿔요", color=pal()["dim"]).setEnabled(False)
             if cur == "live":   # 라이브를 골랐을 때만: 말 모델
                 self._label("라이브 모델")
                 for mid, name in MODELS.items():
@@ -608,16 +610,11 @@ class ModelPopup(QFrame):
     def _pick_effort(self, e, bar, before):
         """최대로 올리면 경고 → '동의' 를 눌러야 바뀐다. 아니면 원래대로."""
         if e == "max" and before != "max":
-            from PySide6.QtWidgets import QMessageBox
+            from .dialog import ask
             self.hide()   # 경고창이 이 작은 창 뒤에 숨지 않게
-            box = QMessageBox(self.owner)
-            box.setWindowTitle("노력 정도: 최대")
-            box.setText("최대는 한도를 많이 써요.")
-            box.setInformativeText("더 깊게 생각하지만 느리고, 하루에 쓸 수 있는 양을 훨씬 빨리 써요.\n그래도 최대로 할까요?")
-            ok = box.addButton("동의", QMessageBox.AcceptRole)
-            box.addButton("취소", QMessageBox.RejectRole)
-            box.exec()
-            if box.clickedButton() is not ok:   # 취소: 막대를 원래 자리로
+            if not ask(self.owner, "생각 강도를 최대로 할까요?",
+                       "최대는 한도를 많이 써요. 더 깊게 생각하지만 느리고, 하루에 쓸 수 있는 양을 훨씬 빨리 써요.",
+                       ok="동의", cancel="취소", danger=False):   # 취소: 막대를 원래 자리로
                 self.show()
                 self.build()
                 return

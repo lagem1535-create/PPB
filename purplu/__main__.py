@@ -56,6 +56,8 @@ def main():
     install.set_app_id()   # 작업 표시줄에서 '파이썬'이 아니라 퍼플루로
     qt = QApplication(sys.argv)
     qt.setQuitOnLastWindowClosed(False)
+    from . import dialog
+    dialog.install()   # 안내창을 윈도우 기본 모양 대신 퍼플루 모양으로
     from .setup_wizard import run_if_needed
     if not run_if_needed():   # 처음 켤 때: 연결 코드 · 키. '나중에' 면 지킴이가 다시 켜지 않게
         (config.DATA_DIR / "quit.flag").write_text("setup", encoding="utf-8")
