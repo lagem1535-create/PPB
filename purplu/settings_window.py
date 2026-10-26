@@ -8,7 +8,7 @@ from datetime import datetime
 from PySide6.QtCore import QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QStyle, QStyledItemDelegate, QComboBox, QFormLayout, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-                               QFrame, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSlider, QStackedWidget, QTabWidget,
+                               QFrame, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSizeGrip, QSlider, QStackedWidget, QTabWidget,
                                QPlainTextEdit, QTextBrowser, QVBoxLayout, QWidget)
 
 from html import escape as html_escape
@@ -36,6 +36,8 @@ def style() -> str:
     c = _colors()
     return f"""
 QWidget {{ background:{c['bg']}; color:{c['text']}; font-family:'Malgun Gothic'; font-size:10pt; }}
+QWidget#setwin {{ background:{c['bg']}; border:1px solid {c['line']}; }}
+QSizeGrip {{ background:transparent; }}
 QFrame#nav {{ background:{c['side']}; border-right:1px solid {c['line']}; }}
 QFrame#nav QLabel {{ background:transparent; }}
 QLabel#navtitle {{ font-size:13pt; font-weight:700; padding:2px 10px 10px; }}
@@ -126,6 +128,9 @@ def add_preset(parent, p) -> dict | None:
     if p["server"].get("command") == "npx" and not shutil.which("npx"):
         QMessageBox.information(parent, "MCP", "이 예시는 Node.js 가 있어야 해요. nodejs.org 에서 설치한 뒤 다시 해 주세요.")
         return None
+    if p["server"].get("command") == "uvx" and not shutil.which("uvx"):
+        QMessageBox.information(parent, "MCP", "이 예시는 uv 가 있어야 해요.\n터미널에서 이렇게 설치한 뒤 다시 해 주세요:\n  pip install uv")
+        return None
     folder = token = ""
     if p.get("ask") == "folder":
         folder = QFileDialog.getExistingDirectory(parent, "퍼플루가 다룰 폴더 고르기", "D:\\")
@@ -214,8 +219,12 @@ class NavTabs(QWidget):
         rv = QVBoxLayout(right)
         rv.setContentsMargins(26, 20, 22, 18)
         rv.setSpacing(8)
+        self.head = QHBoxLayout()   # 페이지 이름 · (오른쪽) 작게 · 닫기
+        self.head.setSpacing(2)
         self.page_title = QLabel("", objectName="pagetitle")
-        rv.addWidget(self.page_title)
+        self.head.addWidget(self.page_title)
+        self.head.addStretch(1)
+        rv.addLayout(self.head)
         self.stack = QStackedWidget()
         rv.addWidget(self.stack, 1)
         h.addWidget(right, 1)
@@ -255,7 +264,9 @@ class SettingsWindow(QWidget):
     _mcp_status = Signal()   # MCP 서버 상태가 바뀜 (다른 스레드 → 화면)
 
     def __init__(self, brain, tablet_url_fn, local_url_fn=None, network_problem_fn=None):
-        super().__init__(None, Qt.Window)
+        super().__init__(None, Qt.Window | Qt.FramelessWindowHint)   # 윈도우 위 줄 대신 퍼플루 단추
+        self.setAttribute(Qt.WA_StyledBackground)
+        self.setObjectName("setwin")
         self.brain = brain
         self.tablet_url_fn = tablet_url_fn
         self.local_url_fn = local_url_fn
@@ -273,9 +284,65 @@ class SettingsWindow(QWidget):
         tabs.addTab(self._skills_tab(), "스킬")
         tabs.addTab(self._mcp_tab(), "MCP")
         tabs.addTab(self._tablet_tab(), "갤럭시 탭")
+        from .chatpanel import IconButton
+        b_min = IconButton("mini", "작게 (작업 표시줄로)")
+        b_min.clicked.connect(self.showMinimized)
+        b_close = IconButton("close", "닫기 (Esc)")
+        b_close.clicked.connect(self.close)
+        tabs.head.addWidget(b_min)
+        tabs.head.addWidget(b_close)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setContentsMargins(1, 1, 1, 1)
         lay.addWidget(tabs)
+        grip = QSizeGrip(self)   # 오른쪽 아래 모서리로 크기 바꾸기
+        grip.setFixedSize(16, 16)
+        self._grip = grip
+
+    # ---- 테두리 없는 창: 빈 곳을 잡고 옮기기 · 가장자리로 크기 바꾸기 · 둥근 모서리 ----
+    def _edges(self, pos):
+        m, r = 6, self.rect()
+        e = Qt.Edges()
+        if pos.x() <= m:
+            e |= Qt.LeftEdge
+        if pos.x() >= r.width() - m:
+            e |= Qt.RightEdge
+        if pos.y() <= m:
+            e |= Qt.TopEdge
+        if pos.y() >= r.height() - m:
+            e |= Qt.BottomEdge
+        return e
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton and self.windowHandle():
+            edges = self._edges(e.position().toPoint())
+            if edges:
+                self.windowHandle().startSystemResize(edges)
+            else:
+                self.windowHandle().startSystemMove()   # 끌어서 옮기기 (화면 끝에 대면 반으로 나누기도 된다)
+            return
+        super().mousePressEvent(e)
+
+    def mouseDoubleClickEvent(self, e):
+        self.showNormal() if self.isMaximized() else self.showMaximized()
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key_Escape:
+            self.close()
+            return
+        super().keyPressEvent(e)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._grip.move(self.width() - 18, self.height() - 18)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        try:   # Windows 11: 둥근 모서리
+            import ctypes
+            pref = ctypes.c_int(2)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(int(self.winId()), 33, ctypes.byref(pref), 4)
+        except Exception:
+            pass
 
     def open(self, tab: int | str | None = None):
         config.load()
@@ -1248,7 +1315,7 @@ class SettingsWindow(QWidget):
         page.setObjectName("setpage")
         v = QVBoxLayout(page)
         v.setContentsMargins(4, 6, 8, 8)
-        head = QLabel("예시 MCP  ·  + 를 누르면 퍼플루가 바로 쓸 수 있어요")
+        head = QLabel("예시 MCP  ·  추가를 누르면 퍼플루가 바로 쓸 수 있어요")
         head.setStyleSheet("font-weight:700; font-size:11pt;")
         v.addWidget(head)
         grid = QGridLayout()
@@ -1265,7 +1332,7 @@ class SettingsWindow(QWidget):
             icon = QLabel(p["icon"])
             icon.setFixedSize(46, 46)
             icon.setAlignment(Qt.AlignCenter)
-            emoji = len(p["icon"]) == 1 and ord(p["icon"]) > 0x2000
+            emoji = len(p["icon"]) == 1 and ord(p["icon"]) > 0x2000 and not 0xAC00 <= ord(p["icon"]) <= 0xD7A3   # 한글 글자는 색 바탕
             icon.setStyleSheet(f"QLabel {{ background:{p['color'] if not emoji else card_bg}; color:white; border:1px solid {line};"
                                f" border-radius:12px; font-size:{'20pt' if emoji else '17pt'}; font-weight:800; }}")
             h.addWidget(icon, 0, Qt.AlignTop)
@@ -1284,8 +1351,8 @@ class SettingsWindow(QWidget):
                 col.addWidget(wdg)
             col.addStretch(1)
             h.addLayout(col, 1)
-            btn = QPushButton("+")
-            btn.setFixedSize(32, 32)
+            btn = QPushButton("추가")
+            btn.setFixedSize(64, 30)
             btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(lambda _=False, p=p: self._card_clicked(p))
             h.addWidget(btn, 0, Qt.AlignTop)
@@ -1311,10 +1378,10 @@ class SettingsWindow(QWidget):
             btn.setText("추가됨" if added else "추가")
             btn.setToolTip("추가됨 (누르면 내 서버에서 보기·지우기)" if added else "추가하기")
             btn.setStyleSheet(
-                "QPushButton { background:#BBF7D0; color:#15803D; border:none; border-radius:9px; font-size:13pt; font-weight:800; padding:0; }"
+                "QPushButton { background:#DCFCE7; color:#15803D; border:none; border-radius:9px; font-size:9.5pt; font-weight:700; padding:0; }"
                 if added else
-                f"QPushButton {{ background:{plus_bg}; color:#71717A; border:1px solid {line}; border-radius:9px; font-size:15pt; font-weight:400; padding:0; }}"
-                f"QPushButton:hover {{ border-color:#8B5CF6; color:#8B5CF6; }}")
+                f"QPushButton {{ background:{plus_bg}; color:#71717A; border:1px solid {line}; border-radius:9px; font-size:9.5pt; font-weight:600; padding:0; }}"
+                f"QPushButton:hover {{ border-color:{_colors()['accent']}; color:{_colors()['accent']}; }}")
             st = mcp_client.status.get(name, {})
             if not added:
                 state.setText("")
