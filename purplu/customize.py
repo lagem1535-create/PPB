@@ -46,7 +46,7 @@ class CustomizeWindow(QWidget):
         self.c = (dict(bg="#FAF8FF", panel="#FFFFFF", text="#1F1235", dim="#71717A", line="#E9E5F5", face="#F3EEFF")
                   if light else dict(bg="#120B22", panel="#1B1230", text="#F5F3FF", dim="#A1A1AA", line="#2E1F4F", face="#000000"))
         c = self.c
-        self.accent = config.settings().get("chat_color") or config.settings().get("color") or "#8B5CF6"
+        self.accent = config.settings().get("chat_color") or config.settings().get("color") or "#3B82F6"
         self.setStyleSheet(f"CustomizeWindow, QWidget#page {{ background:{c['bg']}; }} QLabel {{ color:{c['text']}; background:transparent; }}"
                            f"QScrollArea {{ border:none; background:transparent; }}")
         self.resize(900, 600)

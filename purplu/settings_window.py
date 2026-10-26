@@ -24,7 +24,7 @@ def _colors():
     else:
         c = dict(bg="#120B22", side="#0E0819", text="#F5F3FF", dim="#A1A1AA", line="#2E1F4F", card="#1B1230",
                  soft="#241640", hover="#2E1F4F", field="#1B1230", red="#F87171", redbg="#3B1520", ok="#86EFAC")
-    c["accent"] = config.settings().get("color") or "#8B5CF6"
+    c["accent"] = config.settings().get("color") or "#3B82F6"
     q = QColor(c["accent"])
     lum = 0.2126 * q.redF() ** 2.2 + 0.7152 * q.greenF() ** 2.2 + 0.0722 * q.blueF() ** 2.2
     c["on"] = "#1F1235" if lum > 0.45 else "#FFFFFF"
@@ -113,7 +113,7 @@ class Toggle(QCheckBox):
         p.setRenderHint(QPainter.Antialiasing)
         on = self.isChecked()
         p.setPen(Qt.NoPen)
-        p.setBrush(QColor(config.settings().get("color") or "#8B5CF6") if on else QColor("#71717A"))
+        p.setBrush(QColor(config.settings().get("color") or "#3B82F6") if on else QColor("#71717A"))
         p.drawRoundedRect(QRectF(0, 0, 46, 26), 13, 13)
         p.setBrush(QColor("white"))
         p.drawEllipse(QRectF(23 if on else 3, 3, 20, 20))
@@ -1091,7 +1091,7 @@ class SettingsWindow(QWidget):
 
     def _paint_work_btn(self):
         c = config.settings().get("work_indicator_color") or ""
-        shown = c or config.settings().get("color") or "#8B5CF6"
+        shown = c or config.settings().get("color") or "#3B82F6"
         self.work_btn.setText("  " + (c or "퍼플루 색") + "  ")
         self.work_btn.setStyleSheet(f"background:{shown}; color:white; border-radius:8px; padding:6px 10px;")
 

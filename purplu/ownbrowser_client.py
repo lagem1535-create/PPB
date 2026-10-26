@@ -50,7 +50,7 @@ def start():
         if config.settings().get("theme") != "light":
             args.append("--dark")
         st = config.settings()
-        args.append("--color=" + (st.get("chat_color") or st.get("color") or "#8B5CF6"))
+        args.append("--color=" + (st.get("chat_color") or st.get("color") or "#3B82F6"))
         import os
         args.append(f"--parent={os.getpid()}")
         hwnd[0] = 0

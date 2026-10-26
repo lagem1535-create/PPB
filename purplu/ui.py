@@ -30,7 +30,7 @@ class Bridge(QObject):
 
 
 def theme() -> QColor:
-    return QColor(config.settings().get("color") or "#8B5CF6")
+    return QColor(config.settings().get("color") or "#3B82F6")
 
 
 def blob_icon(color: str | None = None, eyes_closed=False, size=64) -> QIcon:

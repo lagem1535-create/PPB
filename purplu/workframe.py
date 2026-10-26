@@ -52,7 +52,7 @@ class WorkFrame(QWidget):
 
     def color(self) -> QColor:
         s = config.settings()
-        return QColor(s.get("work_indicator_color") or s.get("color") or "#8B5CF6")
+        return QColor(s.get("work_indicator_color") or s.get("color") or "#3B82F6")
 
     # ---- 켜고 끄기 ----
     def start(self, label: str = ""):

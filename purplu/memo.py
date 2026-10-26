@@ -67,7 +67,7 @@ class StickyNote(QWidget):
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        base = QColor(config.settings().get("color") or "#8B5CF6")
+        base = QColor(config.settings().get("color") or "#3B82F6")
         paper = QColor.fromHsv(base.hsvHue(), 40, 255)  # 퍼플루 색을 아주 연하게 → 포스트잇 종이
         rect = QRectF(self.rect()).adjusted(3, 3, -3, -3)
         p.setPen(Qt.NoPen)
