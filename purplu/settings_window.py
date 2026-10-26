@@ -3,9 +3,10 @@
 설정과 대화는 Firebase에 저장된다 (로그인 없음). Gemini 키만 이 PC에 저장.
 """
 import io
+import os
 from datetime import datetime
 
-from PySide6.QtCore import QRect, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEasingCurve, QEvent, QRect, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QStyle, QStyledItemDelegate, QComboBox, QFormLayout, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
                                QFrame, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSizeGrip, QSlider, QStackedWidget, QTabWidget,
@@ -64,6 +65,8 @@ QComboBox QAbstractItemView {{ background:{c['bg']}; border:1px solid {c['line']
                                selection-background-color:{c['soft']}; selection-color:{c['text']}; outline:none; }}
 QListWidget {{ outline:none; }}
 QListWidget#convlist {{ background:transparent; border:none; padding:0; }}
+QListWidget#findlist {{ background:{c['bg']}; border:1px solid {c['line']}; border-radius:12px; padding:4px; }}
+QListWidget#findlist::item, QListWidget#findlist::item:hover, QListWidget#findlist::item:selected {{ background:transparent; }}
 QListWidget#convlist::item, QListWidget#convlist::item:hover, QListWidget#convlist::item:selected {{ background:transparent; }}
 QFrame#bubblebox {{ background:{c['bg']}; border:1px solid {c['line']}; border-radius:14px; }}
 QScrollArea#bubbles {{ background:transparent; border:none; }}
@@ -148,6 +151,46 @@ def add_preset(parent, p) -> dict | None:
     return sv
 
 
+def _card(lay, title):
+    """설정 묶음 카드: 작은 제목 + 둥근 상자. 상자 안 줄을 넣을 자리를 돌려준다."""
+    box = QFrame()
+    box.setObjectName("card")
+    v = QVBoxLayout(box)
+    v.setContentsMargins(0, 2, 0, 2)
+    v.setSpacing(0)
+    head = QLabel(title)
+    head.setObjectName("cardtitle")
+    lay.addWidget(head)
+    lay.addWidget(box)
+    return v
+
+
+def _row(v, title, desc, control, wide=False):
+    """설정 한 줄: 이름 · 설명 · (오른쪽 또는 아래) 고르는 것. 설정 찾기가 이 줄들을 찾는다."""
+    r = QFrame()
+    r.setObjectName("srow")
+    r.setProperty("find", f"{title} {desc}")
+    h = QVBoxLayout(r) if wide else QHBoxLayout(r)
+    h.setContentsMargins(14, 10, 14, 10)
+    t = QVBoxLayout()
+    t.setSpacing(1)
+    a = QLabel(title)
+    a.setObjectName("rtitle")
+    t.addWidget(a)
+    if desc:
+        d = QLabel(desc)
+        d.setObjectName("rdesc")
+        d.setWordWrap(True)
+        t.addWidget(d)
+    h.addLayout(t, 1)
+    if isinstance(control, QHBoxLayout):
+        h.addLayout(control)
+    else:
+        h.addWidget(control, 0 if not wide else 1)
+    v.addWidget(r)
+    return r
+
+
 class ConvDelegate(QStyledItemDelegate):
     """대화 목록 한 줄: 제목 (지금 대화면 '지금' 꼬리표) · 오른쪽에 언제."""
 
@@ -199,6 +242,56 @@ class ConvDelegate(QStyledItemDelegate):
         p.restore()
 
 
+def _flash_widget(w):
+    """찾은 설정을 퍼플루 색으로 반짝 (천천히 사라진다)."""
+    col = QColor(_colors()["accent"])
+    old = w.styleSheet()
+    name = w.objectName() or "x"
+    if not w.objectName():
+        w.setObjectName(name)
+    sel = f"{type(w).__name__}#{name}"
+    anim = QVariantAnimation(w, startValue=90, endValue=0, duration=1800)
+    anim.setEasingCurve(QEasingCurve.InQuad)
+
+    def paint(a):
+        w.setStyleSheet(old + f"{sel} {{ background:rgba({col.red()},{col.green()},{col.blue()},{int(a)}); border-radius:10px; }}")
+    anim.valueChanged.connect(paint)
+    anim.finished.connect(lambda: w.setStyleSheet(old))
+    QTimer.singleShot(900, anim.start)   # 잠깐 진하게 있다가 사라진다
+    paint(90)
+    w._flash_anim = anim
+
+
+class FindDelegate(QStyledItemDelegate):
+    """찾기 목록 한 줄: 설정 이름 · 오른쪽에 어느 페이지."""
+
+    def sizeHint(self, option, index):
+        return QSize(option.rect.width(), 40)
+
+    def paint(self, p, option, index):
+        c = _colors()
+        p.save()
+        p.setRenderHint(QPainter.Antialiasing)
+        r = option.rect.adjusted(4, 2, -4, -2)
+        if option.state & (QStyle.State_Selected | QStyle.State_MouseOver):
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(c["soft"]))
+            p.drawRoundedRect(QRectF(r), 8, 8)
+        where = index.data(Qt.UserRole) or ""
+        f = QFont(option.font)
+        f.setPointSizeF(8.5)
+        p.setFont(f)
+        ww = p.fontMetrics().horizontalAdvance(where)
+        p.setPen(QColor(c["dim"]))
+        p.drawText(QRectF(r.right() - 10 - ww, r.top(), ww, r.height()), Qt.AlignVCenter, where)
+        f.setPointSizeF(10)
+        p.setFont(f)
+        p.setPen(QColor(c["text"] if index.flags() & Qt.ItemIsEnabled else c["dim"]))
+        name = p.fontMetrics().elidedText(index.data(Qt.DisplayRole) or "", Qt.ElideRight, r.width() - ww - 30)
+        p.drawText(QRectF(r.left() + 10, r.top(), r.width(), r.height()), Qt.AlignVCenter, name)
+        p.restore()
+
+
 class NavTabs(QWidget):
     """왼쪽 메뉴 + 오른쪽 화면. QTabWidget 과 같은 이름(addTab · tabText · setCurrentIndex)으로 쓴다."""
 
@@ -213,7 +306,20 @@ class NavTabs(QWidget):
         self.nav_lay.setContentsMargins(12, 18, 12, 12)
         self.nav_lay.setSpacing(2)
         self.nav_lay.addWidget(QLabel(title, objectName="navtitle"))
+        self.find = QLineEdit(placeholderText="설정 찾기")
+        self.find.setClearButtonEnabled(True)
+        self.find.textChanged.connect(self._find_changed)
+        self.find.installEventFilter(self)
+        self.nav_lay.addWidget(self.find)
+        self.nav_lay.addSpacing(8)
         self.nav_lay.addStretch(1)
+        self.hits = QListWidget(self, objectName="findlist")   # 찾기 칸 밑에 뜨는 목록 (창 안에 띄운다)
+        self.hits.setItemDelegate(FindDelegate(self.hits))
+        self.hits.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.hits.setFocusPolicy(Qt.NoFocus)
+        self.hits.itemClicked.connect(lambda it: self._go_hit(self.hits.row(it)))
+        self.hits.hide()
+        self._hit_targets = []
         h.addWidget(self.nav)
         right = QWidget()
         rv = QVBoxLayout(right)
@@ -229,6 +335,81 @@ class NavTabs(QWidget):
         rv.addWidget(self.stack, 1)
         h.addWidget(right, 1)
         self.names, self.btns = [], []
+
+    # ---- 설정 찾기: 치면 밑에 목록, Enter 면 그 설정으로 가서 반짝 ----
+    def _targets(self):
+        """(이름, 설명, 페이지 번호, 위젯) — 설정 줄 · 카드 제목 · 페이지 이름."""
+        out = [(n, "페이지", i, None) for i, n in enumerate(self.names)]
+        for i in range(self.stack.count()):
+            pg = self.stack.widget(i)
+            for w in pg.findChildren(QFrame, "srow"):
+                text = w.property("find") or ""
+                if text.strip():
+                    title, _, desc = text.partition(" ")
+                    labs = w.findChildren(QLabel, "rtitle")
+                    out.append((labs[0].text() if labs else title, self.names[i], i, w))
+            for w in pg.findChildren(QLabel, "cardtitle"):
+                if w.text().strip():
+                    out.append((w.text(), self.names[i], i, w))
+        return out
+
+    def _find_changed(self, q):
+        q = "".join(q.lower().split())
+        self.hits.clear()
+        self._hit_targets = []
+        if not q:
+            self.hits.hide()
+            return
+        seen = set()
+        for name, where, i, w in self._targets():
+            hay = "".join((name + (w.property("find") or "" if w is not None and w.property("find") else "")).lower().split())
+            if q in hay and (name, i) not in seen:
+                seen.add((name, i))
+                self._hit_targets.append((i, w))
+                it = QListWidgetItem(name)
+                it.setData(Qt.UserRole, where)
+                self.hits.addItem(it)
+            if len(self._hit_targets) >= 8:
+                break
+        if not self._hit_targets:
+            it = QListWidgetItem("찾는 설정이 없어요")
+            it.setFlags(Qt.NoItemFlags)
+            self.hits.addItem(it)
+        self.hits.setCurrentRow(0)
+        g = self.find.mapTo(self, self.find.rect().bottomLeft())
+        self.hits.setGeometry(g.x(), g.y() + 4, max(self.find.width(), 260), min(8, self.hits.count()) * 40 + 10)
+        self.hits.show()
+        self.hits.raise_()
+
+    def eventFilter(self, obj, e):
+        if obj is self.find and e.type() == QEvent.KeyPress and self.hits.isVisible():
+            k = e.key()
+            if k in (Qt.Key_Down, Qt.Key_Up):
+                n = self.hits.count()
+                self.hits.setCurrentRow((self.hits.currentRow() + (1 if k == Qt.Key_Down else -1)) % max(1, n))
+                return True
+            if k in (Qt.Key_Return, Qt.Key_Enter):
+                self._go_hit(max(0, self.hits.currentRow()))
+                return True
+            if k == Qt.Key_Escape:
+                self.find.clear()
+                return True
+        return super().eventFilter(obj, e)
+
+    def _go_hit(self, n):
+        if not (0 <= n < len(self._hit_targets)):
+            return
+        i, w = self._hit_targets[n]
+        self.hits.hide()
+        self.setCurrentIndex(i)
+        if w is None:
+            return
+        area = w.parentWidget()
+        while area is not None and not isinstance(area, QScrollArea):
+            area = area.parentWidget()
+        if area is not None:
+            QTimer.singleShot(0, lambda: area.ensureWidgetVisible(w, 40, 120))
+        QTimer.singleShot(60, lambda: _flash_widget(w))
 
     def addTab(self, w, name):
         i = len(self.names)
@@ -283,6 +464,7 @@ class SettingsWindow(QWidget):
         tabs.addTab(self._voice_tab(), "목소리")
         tabs.addTab(self._skills_tab(), "스킬")
         tabs.addTab(self._mcp_tab(), "MCP")
+        tabs.addTab(self._storage_tab(), "데이터 저장")
         tabs.addTab(self._tablet_tab(), "갤럭시 탭")
         from .chatpanel import IconButton
         b_min = IconButton("mini", "작게 (작업 표시줄로)")
@@ -328,7 +510,7 @@ class SettingsWindow(QWidget):
         if isinstance(tab, bool):   # 메뉴에서 부르면 checked(False)가 따라올 수 있다
             tab = None
         if isinstance(tab, str):   # 예: "MCP" (예전 이름 "MCP"·"설정" 도 찾아진다)
-            tab = {"설정": "일반"}.get(tab.split()[-1], tab.split()[-1]) if tab.split() else tab
+            tab = {"설정": "일반", "저장": "데이터 저장"}.get(tab.split()[-1], tab.split()[-1]) if tab.split() else tab
             names = [self.tabs.tabText(i) for i in range(self.tabs.count())]
             tab = next((i for i, n in enumerate(names) if tab in n), None)
         if tab is not None:
@@ -790,38 +972,9 @@ class SettingsWindow(QWidget):
         self.checks, self.combos = {}, {}
 
         def card(title):
-            box = QFrame()
-            box.setObjectName("card")
-            v = QVBoxLayout(box)
-            v.setContentsMargins(0, 2, 0, 2)
-            v.setSpacing(0)
-            head = QLabel(title)
-            head.setObjectName("cardtitle")
-            lay.addWidget(head)
-            lay.addWidget(box)
-            return v
+            return _card(lay, title)
 
-        def row(v, title, desc, control, wide=False):
-            r = QFrame()
-            r.setObjectName("srow")
-            h = QVBoxLayout(r) if wide else QHBoxLayout(r)
-            h.setContentsMargins(14, 10, 14, 10)
-            t = QVBoxLayout()
-            t.setSpacing(1)
-            a = QLabel(title)
-            a.setObjectName("rtitle")
-            t.addWidget(a)
-            if desc:
-                d = QLabel(desc)
-                d.setObjectName("rdesc")
-                d.setWordWrap(True)
-                t.addWidget(d)
-            h.addLayout(t, 1)
-            if isinstance(control, QHBoxLayout):
-                h.addLayout(control)
-            else:
-                h.addWidget(control, 0 if not wide else 1)
-            v.addWidget(r)
+        row = _row
 
         def toggle(v, key, title, desc=""):
             sw = Toggle()
@@ -952,32 +1105,6 @@ class SettingsWindow(QWidget):
         row(v, "웹 주소 (GitHub Pages)", "이 주소에서 연 화면만 PC에 연결돼요", self.pages_edit, wide=True)
         from . import install, store
         local = store.is_local()
-        # ---- 저장 방식: 이 PC에만 · 온라인만 · 이 PC + 온라인 (서로 옮기기) ----
-        mode_row = QHBoxLayout()
-        mode_row.setSpacing(6)
-        self.mode_btns = {}
-        for m, text in (("local", "이 PC에만"), ("online", "온라인만"), ("both", "이 PC + 온라인")):
-            b = QPushButton(text, objectName="plain")
-            b.setCursor(Qt.PointingHandCursor)
-            b.clicked.connect(lambda _=False, m=m: self._switch_storage(m))
-            self.mode_btns[m] = b
-            mode_row.addWidget(b)
-        mode_row.addStretch(1)
-        self.mode_desc = QLabel(objectName="rdesc")
-        self.mode_desc.setWordWrap(True)
-        self.mode_desc.setContentsMargins(14, 0, 14, 8)   # 위 줄들과 같은 들여쓰기
-        row(v, "저장 방식", "", mode_row, wide=True)
-        v.addWidget(self.mode_desc)
-        json_row = QHBoxLayout()
-        jo = QPushButton("JSON 파일로 내보내기", objectName="plain")
-        jo.clicked.connect(self._export_json)
-        ji = QPushButton("JSON 파일 넣기", objectName="plain")
-        ji.clicked.connect(self._import_json)
-        json_row.addWidget(jo)
-        json_row.addWidget(ji)
-        json_row.addStretch(1)
-        row(v, "데이터 파일", "대화·설정·메모를 한 파일로. 다른 PC나 다른 Firebase 로 옮길 때", json_row, wide=True)
-        self._paint_storage()
         code_row = QHBoxLayout()
         b1 = QPushButton("코드 복사", objectName="plain")
         b2 = QPushButton("키도 같이 복사", objectName="plain")
@@ -1003,7 +1130,64 @@ class SettingsWindow(QWidget):
         lay.addStretch(1)
         return outer
 
-    # ---- 저장 방식 바꾸기 · JSON ----
+    # ---- 데이터 저장 페이지: 저장 방식 바꾸기 · JSON ----
+    def _storage_tab(self):
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
+        page = QWidget(objectName="setpage")
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(16, 12, 16, 16)
+        lay.setSpacing(14)
+        area.setWidget(page)
+
+        v = _card(lay, "저장 방식")
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(6)
+        self.mode_btns = {}
+        for m, text in (("local", "이 PC에만"), ("online", "온라인만"), ("both", "이 PC + 온라인")):
+            b = QPushButton(text, objectName="plain")
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(lambda _=False, m=m: self._switch_storage(m))
+            self.mode_btns[m] = b
+            mode_row.addWidget(b)
+        mode_row.addStretch(1)
+        _row(v, "어디에 저장할까요", "누르면 지금 데이터를 새 곳으로 알아서 옮겨요 (올리기·내려받기). 다 되면 퍼플루가 다시 켜져요",
+             mode_row, wide=True)
+        self.mode_desc = QLabel(objectName="rdesc")
+        self.mode_desc.setWordWrap(True)
+        self.mode_desc.setContentsMargins(14, 0, 14, 10)
+        v.addWidget(self.mode_desc)
+        guide = QLabel("이 PC에만: 인터넷 없이도 · Ollama 와 잘 맞아요\n"
+                       "온라인만: 여러 PC가 같이 써요 · 인터넷이 끊기면 저장이 안 돼요\n"
+                       "이 PC + 온라인: 둘 다에 저장 · 인터넷이 없을 땐 이 PC에, 돌아오면 온라인에도 올려요",
+                       objectName="rdesc")
+        guide.setContentsMargins(14, 0, 14, 12)
+        v.addWidget(guide)
+
+        v = _card(lay, "데이터 파일")
+        json_row = QHBoxLayout()
+        jo = QPushButton("JSON 파일로 내보내기", objectName="plain")
+        jo.clicked.connect(self._export_json)
+        ji = QPushButton("JSON 파일 넣기", objectName="plain")
+        ji.clicked.connect(self._import_json)
+        json_row.addWidget(jo)
+        json_row.addWidget(ji)
+        json_row.addStretch(1)
+        _row(v, "직접 옮기기", "대화·설정·메모를 한 파일로 저장하거나, 그 파일을 지금 저장하는 곳에 합쳐 넣어요", json_row, wide=True)
+        bk = QPushButton("백업 폴더 열기", objectName="plain")
+        bk.clicked.connect(self._open_backups)
+        _row(v, "자동 백업", "저장 방식을 바꿀 때마다 바꾸기 전 데이터를 data\\backup 에 JSON 으로 남겨요", bk)
+        lay.addStretch(1)
+        self._store_timer = QTimer(self, interval=2000, timeout=lambda: self.isVisible() and self._paint_storage())
+        self._store_timer.start()   # 못 보낸 것 몇 개인지 보이게
+        return area
+
+    def _open_backups(self):
+        d = config.DATA_DIR / "backup"
+        d.mkdir(parents=True, exist_ok=True)
+        os.startfile(str(d))
+
     _MODE_TEXT = {"local": "이 PC에만", "online": "온라인만 (Firebase)", "both": "이 PC + 온라인"}
 
     def _paint_storage(self):
