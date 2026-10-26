@@ -52,6 +52,41 @@ COMMANDS = [
 ]
 CMD_ALIAS = {"costom": "custom", "customize": "custom", "꾸미기": "custom", "terminal": "term", "터미널": "term", "browser": "web", "브라우저": "web", "setting": "settings", "설정": "settings", "새대화": "new", "clear": "new"}
 
+def model_slug(name: str) -> str:
+    """'Gemini 3.8 Flash' → 'gemini3.8flash' (/model-gemini3.8 처럼 앞부분만 쳐도 된다)."""
+    return "".join(name.lower().split())
+
+
+def quick_models() -> list[dict]:
+    """/model- 로 바로 바꿀 수 있는 모델 (지금 쓸 수 있는 것만). 칠 때마다 키 창고를 열지 않게 10초 기억."""
+    import time
+    now = time.time()
+    if _quick_cache[1] is not None and now - _quick_cache[0] < 10:
+        return _quick_cache[1]
+    from .model_ui import catalog
+    rows = []
+    for g in catalog():
+        for it in g["items"]:
+            if it["ready"]:
+                rows.append({"slug": model_slug(it["name"]), "mid": it["mid"], "name": it["name"], "group": g["name"],
+                             "kind": {"cli": "터미널", "local": "이 PC"}.get(it["kind"], "")})
+    _quick_cache[:] = [now, rows]
+    return rows
+
+
+def find_model(q: str):
+    """짧은 이름으로 모델 찾기: 똑같은 것 → 앞부분이 같은 것 → 들어 있는 것."""
+    q = model_slug(q)
+    rows = quick_models()
+    for test in (lambda r: r["slug"] == q, lambda r: r["slug"].startswith(q), lambda r: q in r["slug"]):
+        hit = next((r for r in rows if test(r)), None)
+        if hit:
+            return hit
+    return None
+
+
+_quick_cache = [0.0, None]
+
 MODELS = {"gemini-3.8-live": "⚡ 빠른 모델", "gemini-3.8-live-extended-thinking": "🧠 생각하는 모델"}
 STATUS = {"sleep": "듣는 중", "idle": "듣는 중", "listening": "듣는 중…", "thinking": "생각 중…",
           "acting": "하는 중…", "speaking": "말하는 중"}
@@ -1904,6 +1939,11 @@ class ChatPanel(QWidget):
         text = self.input.toPlainText().strip()
         if not text and not self.attach:
             return
+        if text.lower().startswith("/model-") and len(text) > 7:
+            self.input.clear()
+            self.sugg.hide()
+            self._quick_model(text[7:])
+            return
         if text.startswith("/") and " " not in text:
             name = CMD_ALIAS.get(text[1:].lower(), text[1:].lower())
             if any(n == name for n, _ in COMMANDS):
@@ -2055,7 +2095,14 @@ class ChatPanel(QWidget):
             q = before[1:].lower()
             self._kind = "/"
             self._items = [{"label": n, "sub": d} for n, d in COMMANDS
-                           if n.startswith(q) or q in d.lower() or CMD_ALIAS.get(q, "") == n]
+                           if not q.startswith("model-") and (n.startswith(q) or q in d.lower() or CMD_ALIAS.get(q, "") == n)]
+            if q.startswith("model"):   # /model-gemini3.8 처럼 바로 바꾸기
+                want = model_slug(q[6:]) if q.startswith("model-") else ""
+                cur = config.settings().get("text_model") or ""
+                self._items += [{"label": "model-" + r["slug"], "mid": r["mid"],
+                                 "sub": f"{r['group']} · {r['name']}" + (f" ({r['kind']})" if r["kind"] else "")
+                                 + ("  · 지금 쓰는 중" if r["mid"] == cur else "")}
+                                for r in quick_models() if want in r["slug"]]
         elif sharp >= 0 and " " not in before[sharp:] and (sharp == 0 or before[sharp - 1] in " \n"):
             q = before[sharp + 1:].lower()
             rows = getattr(self, "_skills", None)
@@ -2092,6 +2139,18 @@ class ChatPanel(QWidget):
             if keep in labels:
                 self.sugg.verticalScrollBar().setValue(bar)
         self.sugg.setVisible(bool(self._items))
+
+    def _quick_model(self, q: str):
+        """/model-이름: 창을 열지 않고 글 대화 모델을 바로 바꾼다."""
+        hit = find_model(q)
+        if not hit:
+            old = self.input.placeholderText()
+            self.input.setPlaceholderText(f"'{q}' 모델은 없어요. /model- 을 치면 목록이 나와요")
+            QTimer.singleShot(4000, lambda: self.input.setPlaceholderText(old))
+            return
+        config.save_settings(text_model=hit["mid"])
+        self._paint_model_btn()
+        self.input.setFocus()
 
     def _run_command(self, name: str):
         s = config.settings()
@@ -2222,7 +2281,10 @@ class ChatPanel(QWidget):
         if self._kind == "/":   # 명령은 고르면 바로 실행
             self.input.clear()
             self.sugg.hide()
-            self._run_command(it["label"])
+            if it.get("mid"):
+                self._quick_model(it["label"][6:])
+            else:
+                self._run_command(it["label"])
             return
         if self._kind == "#":
             new_before = before[:before.rfind("#")] + f"#{it['label']} "
